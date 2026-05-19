@@ -5,13 +5,9 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Enrollment, Student, Subject } from '../types';
 import Modal from '../components/Modal';
+import ConfirmModal from '../components/ConfirmModal';
+import { ENROLLMENT_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
-
-const statusBadge = (status: string) => {
-	if (status === 'approved') return 'badge-green';
-	if (status === 'rejected') return 'badge-red';
-	return 'badge-yellow';
-};
 
 export default function EnrollmentPage() {
 	const { user } = useAuthStore();
@@ -21,6 +17,7 @@ export default function EnrollmentPage() {
 	const [search, setSearch] = useState('');
 	const [filterStatus, setFilterStatus] = useState('all');
 	const [showModal, setShowModal] = useState(false);
+	const [deleteTarget, setDeleteTarget] = useState<Enrollment | null>(null);
 	const [form, setForm] = useState({ studentID: '', subjectID: '' });
 
 	const { data: enrollments = [], isLoading } = useQuery({
@@ -77,6 +74,7 @@ export default function EnrollmentPage() {
 		onSuccess: () => {
 			toast.success('Enrollment deleted');
 			qc.invalidateQueries({ queryKey: ['enrollment'] });
+			setDeleteTarget(null);
 		},
 		onError: () => toast.error('Failed to delete enrollment'),
 	});
@@ -157,7 +155,7 @@ export default function EnrollmentPage() {
 							</thead>
 							<tbody className="divide-y divide-surface-50">
 								{filtered.map((e) => (
-									<tr key={e.enrollmentID} className="hover:bg-surface-50/50 transition-colors">
+									<tr key={e.enrollmentID} className="table-row-hover">
 										<td className="table-cell font-mono text-xs text-surface-400">#{e.enrollmentID}</td>
 										<td className="table-cell font-medium">
 											{e.student?.stuFirstName} {e.student?.stuLastName}
@@ -172,7 +170,7 @@ export default function EnrollmentPage() {
 											{new Date(e.enrollmentDate).toLocaleDateString()}
 										</td>
 										<td className="table-cell">
-											<span className={`badge ${statusBadge(e.status)}`}>{e.status}</span>
+											<span className={`badge ${ENROLLMENT_STATUS_BADGES[e.status] || 'badge-gray'}`}>{e.status}</span>
 										</td>
 										{isAdmin && (
 											<td className="table-cell text-right">
@@ -181,14 +179,14 @@ export default function EnrollmentPage() {
 														<>
 															<button
 																onClick={() => statusMutation.mutate({ id: e.enrollmentID, status: 'approved' })}
-																className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors"
+																className="icon-btn icon-btn--success"
 																title="Approve"
 															>
 																<Check className="w-4 h-4" />
 															</button>
 															<button
 																onClick={() => statusMutation.mutate({ id: e.enrollmentID, status: 'rejected' })}
-																className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg transition-colors"
+																className="icon-btn icon-btn--danger"
 																title="Reject"
 															>
 																<X className="w-4 h-4" />
@@ -196,10 +194,8 @@ export default function EnrollmentPage() {
 														</>
 													)}
 													<button
-														onClick={() => {
-															if (confirm('Delete this enrollment?')) deleteMutation.mutate(e.enrollmentID);
-														}}
-														className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors"
+														onClick={() => setDeleteTarget(e)}
+														className="icon-btn icon-btn--danger"
 														title="Delete"
 													>
 														<Trash2 className="w-4 h-4" />
@@ -260,6 +256,16 @@ export default function EnrollmentPage() {
 					</div>
 				</div>
 			</Modal>
+
+			<ConfirmModal
+				isOpen={!!deleteTarget}
+				title="Delete Enrollment"
+				message={`Delete enrollment #${deleteTarget?.enrollmentID || ''}? This action cannot be undone.`}
+				confirmLabel="Delete Enrollment"
+				isProcessing={deleteMutation.isPending}
+				onClose={() => setDeleteTarget(null)}
+				onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.enrollmentID)}
+			/>
 		</div>
 	);
 }

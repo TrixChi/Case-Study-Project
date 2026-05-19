@@ -23,11 +23,17 @@ export interface Student {
 
 export interface Parent {
   parentID: number;
+  email?: string;
   parentFirstName: string;
   parentMiddleName?: string;
   parentLastName: string;
   contactInfo: string;
   relationship: string;
+  studentID?: number;
+  relationshipStatus?: 'pending' | 'approved' | 'rejected';
+  validatedBy?: number;
+  validatedAt?: string;
+  student?: Student;
   userId?: string;
 }
 

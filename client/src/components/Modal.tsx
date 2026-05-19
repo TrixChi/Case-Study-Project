@@ -30,7 +30,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       <div className={`relative bg-white rounded-2xl shadow-modal w-full ${sizeClasses[size]} animate-slide-in`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
           <h2 className="section-title">{title}</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-surface-100 rounded-lg transition-colors text-surface-500">
+          <button onClick={onClose} className="icon-btn icon-btn--muted">
             <X className="w-4 h-4" />
           </button>
         </div>

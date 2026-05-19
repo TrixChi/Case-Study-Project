@@ -5,15 +5,12 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Attendance, Student, Subject } from '../types';
 import Modal from '../components/Modal';
+import ConfirmModal from '../components/ConfirmModal';
+import { ATTENDANCE_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
+import ActionButtons from '../components/ActionButtons';
 
 const emptyForm = { studentID: '', subjectID: '', status: 'present', attendanceDate: new Date().toISOString().split('T')[0] };
-
-const statusBadge = (s: string) => {
-	if (s === 'present') return 'badge-green';
-	if (s === 'late') return 'badge-yellow';
-	return 'badge-red';
-};
 
 export default function AttendancePage() {
 	const { user } = useAuthStore();
@@ -26,6 +23,7 @@ export default function AttendancePage() {
 	const [showModal, setShowModal] = useState(false);
 	const [editing, setEditing] = useState<Attendance | null>(null);
 	const [form, setForm] = useState(emptyForm);
+		const [deleteTarget, setDeleteTarget] = useState<Attendance | null>(null);
 
 	const { data: records = [], isLoading } = useQuery({
 		queryKey: ['attendance'],
@@ -65,7 +63,7 @@ export default function AttendancePage() {
 
 	const deleteMutation = useMutation({
 		mutationFn: (id: number) => api.delete(`/records/attendance/${id}`),
-		onSuccess: () => { toast.success('Record deleted'); qc.invalidateQueries({ queryKey: ['attendance'] }); },
+		 onSuccess: () => { toast.success('Record deleted'); qc.invalidateQueries({ queryKey: ['attendance'] }); setDeleteTarget(null); },
 		onError: () => toast.error('Failed to delete'),
 	});
 
@@ -97,18 +95,18 @@ export default function AttendancePage() {
 
 			{/* Summary pills */}
 			<div className="flex gap-3 flex-wrap">
-				<div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2">
-					<div className="w-2 h-2 bg-emerald-500 rounded-full" />
-					<span className="text-sm font-medium text-emerald-700">{present} Present</span>
-				</div>
-				<div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
-					<div className="w-2 h-2 bg-amber-500 rounded-full" />
-					<span className="text-sm font-medium text-amber-700">{late} Late</span>
-				</div>
-				<div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
-					<div className="w-2 h-2 bg-red-500 rounded-full" />
-					<span className="text-sm font-medium text-red-700">{absent} Absent</span>
-				</div>
+						<div className="stat-pill stat-pill--emerald">
+							<div className="w-2 h-2 bg-emerald-500 rounded-full" />
+							<span>{present} Present</span>
+						</div>
+						<div className="stat-pill stat-pill--amber">
+							<div className="w-2 h-2 bg-amber-500 rounded-full" />
+							<span>{late} Late</span>
+						</div>
+						<div className="stat-pill stat-pill--red">
+							<div className="w-2 h-2 bg-red-500 rounded-full" />
+							<span>{absent} Absent</span>
+						</div>
 			</div>
 
 			<div className="flex flex-wrap gap-3">
@@ -148,7 +146,7 @@ export default function AttendancePage() {
 							</thead>
 							<tbody className="divide-y divide-surface-50">
 								{filtered.map((a) => (
-									<tr key={a.attendanceID} className="hover:bg-surface-50/50 transition-colors">
+									<tr key={a.attendanceID} className="table-row-hover">
 										<td className="table-cell font-medium">{a.student?.stuFirstName} {a.student?.stuLastName}</td>
 										<td className="table-cell text-surface-500">
 											{a.tutor ? `${a.tutor.tutorFirstName} ${a.tutor.tutorLastName}` : '—'}
@@ -157,20 +155,11 @@ export default function AttendancePage() {
 											{new Date(a.attendanceDate).toLocaleDateString()}
 										</td>
 										<td className="table-cell">
-											<span className={`badge ${statusBadge(a.status)}`}>{a.status}</span>
+											<span className={`badge ${ATTENDANCE_STATUS_BADGES[a.status] || 'badge-gray'}`}>{a.status}</span>
 										</td>
 										{canEdit && (
 											<td className="table-cell text-right">
-												<div className="flex items-center justify-end gap-1.5">
-													<button onClick={() => openEdit(a)} className="p-1.5 hover:bg-blue-50 text-surface-400 hover:text-blue-600 rounded-lg transition-colors">
-														<Pencil className="w-4 h-4" />
-													</button>
-													{isAdmin && (
-														<button onClick={() => { if (confirm('Delete this record?')) deleteMutation.mutate(a.attendanceID); }} className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors">
-															<Trash2 className="w-4 h-4" />
-														</button>
-													)}
-												</div>
+												<ActionButtons onEdit={() => openEdit(a)} onDelete={isAdmin ? () => setDeleteTarget(a) : undefined} />
 											</td>
 										)}
 									</tr>
@@ -225,6 +214,16 @@ export default function AttendancePage() {
 					</div>
 				</div>
 			</Modal>
+
+			<ConfirmModal
+				isOpen={!!deleteTarget}
+				title="Delete Attendance Record"
+				message={`Delete the attendance record for ${deleteTarget?.student?.stuFirstName || 'this student'}? This action cannot be undone.`}
+				confirmLabel="Delete Record"
+				isProcessing={deleteMutation.isPending}
+				onClose={() => setDeleteTarget(null)}
+				onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.attendanceID)}
+			/>
 		</div>
 	);
 }

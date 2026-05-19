@@ -5,7 +5,9 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Payment, Student } from '../types';
 import Modal from '../components/Modal';
+import ConfirmModal from '../components/ConfirmModal';
 import toast from 'react-hot-toast';
+import ActionButtons from '../components/ActionButtons';
 
 export default function PaymentPage() {
   const { user } = useAuthStore();
@@ -14,6 +16,7 @@ export default function PaymentPage() {
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [form, setForm] = useState({ studentID: '', amount: '', receiptNo: '' });
 
   const { data: payments = [], isLoading } = useQuery({
@@ -52,6 +55,7 @@ export default function PaymentPage() {
     onSuccess: () => {
       toast.success('Payment deleted');
       qc.invalidateQueries({ queryKey: ['payment'] });
+      setDeleteTarget(null);
     },
     onError: () => toast.error('Failed to delete'),
   });
@@ -116,7 +120,7 @@ export default function PaymentPage() {
               </thead>
               <tbody className="divide-y divide-surface-50">
                 {filtered.map((p) => (
-                  <tr key={p.paymentID} className="hover:bg-surface-50/50 transition-colors">
+                  <tr key={p.paymentID} className="table-row-hover">
                     <td className="table-cell">
                       <span className="font-mono text-xs bg-surface-100 px-2 py-0.5 rounded text-surface-700">
                         {p.receiptNo}
@@ -138,14 +142,7 @@ export default function PaymentPage() {
                     </td>
                     {isAdmin && (
                       <td className="table-cell text-right">
-                        <button
-                          onClick={() => {
-                            if (confirm('Delete this payment record?')) deleteMutation.mutate(p.paymentID);
-                          }}
-                          className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <ActionButtons onDelete={() => setDeleteTarget(p)} />
                       </td>
                     )}
                   </tr>
@@ -212,6 +209,16 @@ export default function PaymentPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Payment"
+        message={`Delete payment record ${deleteTarget?.receiptNo || ''}? This action cannot be undone.`}
+        confirmLabel="Delete Payment"
+        isProcessing={deleteMutation.isPending}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.paymentID)}
+      />
     </div>
   );
 }

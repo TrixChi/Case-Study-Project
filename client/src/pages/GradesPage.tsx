@@ -5,6 +5,9 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Grade, Student, Subject } from '../types';
 import Modal from '../components/Modal';
+import ConfirmModal from '../components/ConfirmModal';
+import ActionButtons from '../components/ActionButtons';
+import { GRADE_STANDING_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
 
 const emptyForm = { studentID: '', subjectID: '', gradeValue: '', tutorID: '' };
@@ -20,6 +23,7 @@ export default function GradesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Grade | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [deleteTarget, setDeleteTarget] = useState<Grade | null>(null);
 
   const { data: grades = [], isLoading } = useQuery({
     queryKey: ['grades'],
@@ -62,7 +66,7 @@ export default function GradesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.delete(`/records/grades/${id}`),
-    onSuccess: () => { toast.success('Grade deleted'); qc.invalidateQueries({ queryKey: ['grades'] }); },
+    onSuccess: () => { toast.success('Grade deleted'); qc.invalidateQueries({ queryKey: ['grades'] }); setDeleteTarget(null); },
     onError: () => toast.error('Failed to delete'),
   });
 
@@ -131,7 +135,7 @@ export default function GradesPage() {
               </thead>
               <tbody className="divide-y divide-surface-50">
                 {filtered.map((g) => (
-                  <tr key={g.gradeID} className="hover:bg-surface-50/50 transition-colors">
+                  <tr key={g.gradeID} className="table-row-hover">
                     <td className="table-cell font-medium">{g.student?.stuFirstName} {g.student?.stuLastName}</td>
                     <td className="table-cell">{g.subject?.subjectName}</td>
                     <td className="table-cell text-surface-500">
@@ -141,22 +145,13 @@ export default function GradesPage() {
                       {g.gradeValue}
                     </td>
                     <td className="table-cell">
-                      <span className={`badge ${g.academicStanding === 'Passed' ? 'badge-green' : 'badge-red'}`}>
+                      <span className={`badge ${GRADE_STANDING_BADGES[g.academicStanding] || 'badge-gray'}`}>
                         {g.academicStanding}
                       </span>
                     </td>
                     {canEdit && (
                       <td className="table-cell text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button onClick={() => openEdit(g)} className="p-1.5 hover:bg-blue-50 text-surface-400 hover:text-blue-600 rounded-lg transition-colors">
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          {isAdmin && (
-                            <button onClick={() => { if (confirm('Delete this grade?')) deleteMutation.mutate(g.gradeID); }} className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                        <ActionButtons onEdit={() => openEdit(g)} onDelete={isAdmin ? () => setDeleteTarget(g) : undefined} />
                       </td>
                     )}
                   </tr>
@@ -208,6 +203,16 @@ export default function GradesPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Grade"
+        message={`Delete the grade record for ${deleteTarget?.student?.stuFirstName || 'this student'}? This action cannot be undone.`}
+        confirmLabel="Delete Grade"
+        isProcessing={deleteMutation.isPending}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.gradeID)}
+      />
     </div>
   );
 }

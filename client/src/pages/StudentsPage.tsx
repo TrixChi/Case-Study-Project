@@ -5,12 +5,25 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Student, Parent } from '../types';
 import Modal from '../components/Modal';
+import ConfirmModal from '../components/ConfirmModal';
+import ActionButtons from '../components/ActionButtons';
+import StatusSelector from '../components/StatusSelector';
+import { STUDENT_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
 
 const emptyForm = {
+  email: '',
+  password: '',
   stuFirstName: '', stuMiddleName: '', stuLastName: '',
-  stuContactInfo: '', address: '', parentID: '',
+  stuContactInfo: '', address: '', status: 'enrolled', parentID: '',
 };
+
+const statusOptions = [
+  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'graduate', label: 'Graduate' },
+  { value: 'unpaid', label: 'Unpaid' },
+  { value: 'missing fees', label: 'Missing Fees' },
+] as const;
 
 export default function StudentsPage() {
   const { user } = useAuthStore();
@@ -21,6 +34,7 @@ export default function StudentsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
 
   const { data: students = [], isLoading } = useQuery({
     queryKey: ['students'],
@@ -44,11 +58,14 @@ export default function StudentsPage() {
   const openEdit = (s: Student) => {
     setEditing(s);
     setForm({
+      email: s.email || '',
+      password: '',
       stuFirstName: s.stuFirstName,
       stuMiddleName: s.stuMiddleName || '',
       stuLastName: s.stuLastName,
       stuContactInfo: s.stuContactInfo,
       address: s.address,
+      status: s.status,
       parentID: s.parentID?.toString() || '',
     });
     setShowModal(true);
@@ -56,21 +73,34 @@ export default function StudentsPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: typeof form) =>
-      api.post('/records/students', { ...data, parentID: data.parentID ? Number(data.parentID) : undefined }),
+      api.post('/records/students', {
+        ...data,
+        parentID: data.parentID ? Number(data.parentID) : undefined,
+      }),
     onSuccess: () => { toast.success('Student added'); qc.invalidateQueries({ queryKey: ['students'] }); setShowModal(false); },
     onError: () => toast.error('Failed to add student'),
   });
 
   const updateMutation = useMutation({
     mutationFn: (data: typeof form) =>
-      api.patch(`/records/students/${editing?.studentID}`, { ...data, parentID: data.parentID ? Number(data.parentID) : undefined }),
+      api.patch(`/records/students/${editing?.studentID}`, {
+        email: data.email,
+        stuFirstName: data.stuFirstName,
+        stuMiddleName: data.stuMiddleName,
+        stuLastName: data.stuLastName,
+        stuContactInfo: data.stuContactInfo,
+        address: data.address,
+        status: data.status,
+        parentID: data.parentID ? Number(data.parentID) : null,
+        password: data.password?.trim() || 'ABClearning2026',
+      }),
     onSuccess: () => { toast.success('Student updated'); qc.invalidateQueries({ queryKey: ['students'] }); setShowModal(false); },
-    onError: () => toast.error('Failed to update student'),
+    onError: (error: { response?: { data?: { error?: string } } }) => toast.error(error.response?.data?.error || 'Failed to update student'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.delete(`/records/students/${id}`),
-    onSuccess: () => { toast.success('Student deleted'); qc.invalidateQueries({ queryKey: ['students'] }); },
+    onSuccess: () => { toast.success('Student deleted'); qc.invalidateQueries({ queryKey: ['students'] }); setDeleteTarget(null); },
     onError: () => toast.error('Failed to delete'),
   });
 
@@ -136,12 +166,12 @@ export default function StudentsPage() {
               </thead>
               <tbody className="divide-y divide-surface-50">
                 {filtered.map((s) => (
-                  <tr key={s.studentID} className="hover:bg-surface-50/50 transition-colors">
+                  <tr key={s.studentID} className="table-row-hover">
                     <td className="table-cell font-mono text-xs text-surface-400">#{s.studentID}</td>
                     <td className="table-cell">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="text-brand-700 text-xs font-semibold">
+                        <div className="w-8 h-8 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-white text-xs font-semibold">
                             {s.stuFirstName[0]}{s.stuLastName[0]}
                           </span>
                         </div>
@@ -155,7 +185,7 @@ export default function StudentsPage() {
                     <td className="table-cell text-surface-500">{s.stuContactInfo || '—'}</td>
                     <td className="table-cell text-surface-500 max-w-[200px] truncate">{s.address || '—'}</td>
                     <td className="table-cell">
-                      <span className={`badge ${s.status === 'active' ? 'badge-green' : 'badge-gray'}`}>
+                      <span className={`badge ${STUDENT_STATUS_BADGES[s.status] || 'badge-gray'}`}>
                         {s.status}
                       </span>
                     </td>
@@ -166,20 +196,7 @@ export default function StudentsPage() {
                     </td>
                     {isAdmin && (
                       <td className="table-cell text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => openEdit(s)}
-                            className="p-1.5 hover:bg-blue-50 text-surface-400 hover:text-blue-600 rounded-lg transition-colors"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => { if (confirm('Delete this student?')) deleteMutation.mutate(s.studentID); }}
-                            className="p-1.5 hover:bg-red-50 text-surface-400 hover:text-red-500 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        <ActionButtons onEdit={() => openEdit(s)} onDelete={() => setDeleteTarget(s)} />
                       </td>
                     )}
                   </tr>
@@ -198,6 +215,14 @@ export default function StudentsPage() {
         size="lg"
       >
         <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Email *</label>
+            <input className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="student@ABClearning.com" />
+          </div>
+          <div>
+            <label className="label">Password *</label>
+            <input type="password" className="input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Leave blank for default password" />
+          </div>
           <div>
             <label className="label">First Name *</label>
             <input className="input" value={form.stuFirstName} onChange={e => setForm(f => ({ ...f, stuFirstName: e.target.value }))} placeholder="Juan" />
@@ -219,6 +244,10 @@ export default function StudentsPage() {
             <input className="input" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Street, Barangay, City" />
           </div>
           <div className="col-span-2">
+            <label className="label">Status</label>
+            <StatusSelector options={statusOptions as any} value={form.status} onChange={(v) => setForm(f => ({ ...f, status: v }))} />
+          </div>
+          <div className="col-span-2">
             <label className="label">Parent/Guardian</label>
             <select className="input" value={form.parentID} onChange={e => setForm(f => ({ ...f, parentID: e.target.value }))}>
               <option value="">None</option>
@@ -233,7 +262,15 @@ export default function StudentsPage() {
             <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
             <button
               onClick={handleSubmit}
-              disabled={!form.stuFirstName || !form.stuLastName || createMutation.isPending || updateMutation.isPending}
+              disabled={
+                !form.email ||
+                !form.stuFirstName ||
+                !form.stuLastName ||
+                !form.stuContactInfo ||
+                !form.address ||
+                createMutation.isPending ||
+                updateMutation.isPending
+              }
               className="btn-primary"
             >
               {editing ? 'Update Student' : 'Add Student'}
@@ -241,6 +278,16 @@ export default function StudentsPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Student"
+        message={`Delete ${deleteTarget?.stuFirstName || 'this student'} ${deleteTarget?.stuLastName || ''}? This action cannot be undone.`}
+        confirmLabel="Delete Student"
+        isProcessing={deleteMutation.isPending}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.studentID)}
+      />
     </div>
   );
 }

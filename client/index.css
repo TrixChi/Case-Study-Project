@@ -81,6 +81,73 @@
     @apply px-4 py-3 text-sm text-surface-700;
   }
 
+  /* Table row hover utility */
+  .table-row-hover {
+    @apply hover:bg-surface-50/50 transition-colors;
+  }
+
+  /* Navigation / list link */
+  .nav-link {
+    @apply w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-surface-600 hover:bg-surface-50 hover:text-surface-900 transition-colors;
+  }
+
+  .nav-link--danger {
+    @apply w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-600 transition-colors;
+  }
+
+  /* Block variant for primary buttons */
+  .btn-block {
+    @apply btn-primary w-full;
+  }
+
+  /* Login-specific button styling used on auth page */
+  .btn-login {
+    @apply w-full py-2.5 bg-brand-300 hover:bg-brand-200 text-brand-950 font-medium rounded-lg text-sm transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-brand-200 focus:ring-offset-2 focus:ring-offset-transparent disabled:opacity-50 disabled:cursor-not-allowed mt-2;
+  }
+
+  /* Segmented toggle buttons (used for status selectors) */
+  .seg-btn {
+    @apply px-3 py-2 rounded-lg border text-sm font-medium transition-colors bg-white text-surface-600 border-surface-200;
+  }
+  .seg-btn--active {
+    @apply bg-brand-600 text-white border-brand-600;
+  }
+
+  /* Table action group spacing */
+  .table-action-group {
+    @apply flex items-center justify-end gap-1.5;
+  }
+
+  /* Small icon button used for row actions (edit/delete) */
+  .icon-btn {
+    @apply p-1.5 rounded-lg transition-colors text-surface-400;
+  }
+
+  .icon-btn--edit {
+    @apply hover:bg-blue-50 hover:text-blue-600;
+  }
+
+  .icon-btn--danger {
+    @apply hover:bg-red-50 hover:text-red-500;
+  }
+
+  .icon-btn--muted {
+    @apply hover:bg-surface-50 hover:text-surface-600;
+  }
+
+  .icon-btn--success {
+    @apply hover:bg-emerald-50 text-emerald-600;
+  }
+
+  /* Summary/stats pill */
+  .stat-pill {
+    @apply flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium;
+  }
+
+  .stat-pill--emerald { @apply bg-emerald-50 border border-emerald-200 text-emerald-700; }
+  .stat-pill--amber   { @apply bg-amber-50 border border-amber-200 text-amber-700; }
+  .stat-pill--red     { @apply bg-red-50 border border-red-200 text-red-700; }
+
   .page-title {
     @apply text-2xl font-display font-semibold text-surface-900;
   }

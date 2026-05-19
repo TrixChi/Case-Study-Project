@@ -2,11 +2,13 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   BookOpen, Users, ClipboardList, CreditCard,
   FileText, BarChart3, LogOut, ChevronRight, GraduationCap,
-  Menu
+  Menu, KeyRound, Lock
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
+import api from '../lib/api';
+import Modal from './Modal';
 
 interface NavItem {
   to: string;
@@ -20,6 +22,8 @@ const navItems: NavItem[] = [
   { to: '/enrollment', label: 'Enrollment', icon: <ClipboardList className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
   { to: '/payment', label: 'Payments', icon: <CreditCard className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
   { to: '/records/students', label: 'Students', icon: <Users className="w-4 h-4" />, roles: ['admin', 'tutor'] },
+  { to: '/records/parents', label: 'Parent/Guardian', icon: <KeyRound className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
+  { to: '/records/tutors', label: 'Tutors', icon: <GraduationCap className="w-4 h-4" />, roles: ['admin'] },
   { to: '/records/subjects', label: 'Subjects', icon: <BookOpen className="w-4 h-4" />, roles: ['admin', 'tutor', 'student', 'parent'] },
   { to: '/records/grades', label: 'Grades', icon: <GraduationCap className="w-4 h-4" />, roles: ['admin', 'tutor', 'student', 'parent'] },
   { to: '/records/attendance', label: 'Attendance', icon: <FileText className="w-4 h-4" />, roles: ['admin', 'tutor', 'student', 'parent'] },
@@ -36,11 +40,50 @@ export default function Layout() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+
+  const closePasswordModal = () => {
+    setChangePasswordOpen(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+  };
 
   const handleLogout = () => {
     logout();
     toast.success('Signed out successfully');
     navigate('/login');
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError('');
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      await api.post('/auth/change-password', {
+        currentPassword,
+        newPassword,
+      });
+      toast.success('Password updated successfully');
+      closePasswordModal();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Unable to update password';
+      setPasswordError(msg);
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   const visibleNav = navItems.filter(item => user && item.roles.includes(user.role));
@@ -67,13 +110,7 @@ export default function Layout() {
             key={item.to}
             to={item.to}
             onClick={() => setSidebarOpen(false)}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${
-                isActive
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-surface-600 hover:bg-surface-50 hover:text-surface-900'
-              }`
-            }
+            className={({ isActive }) => `nav-link group ${isActive ? 'bg-brand-50 text-brand-700' : ''}`}
           >
             {({ isActive }) => (
               <>
@@ -92,8 +129,8 @@ export default function Layout() {
       <div className="px-3 py-4 border-t border-surface-100">
         <div className="px-3 py-3 rounded-lg bg-surface-50 mb-2">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-brand-700 text-sm font-semibold">
+            <div className="w-8 h-8 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-sm font-semibold">
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </span>
             </div>
@@ -107,10 +144,11 @@ export default function Layout() {
             </div>
           </div>
         </div>
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-surface-600 hover:bg-red-50 hover:text-red-600 transition-colors"
-        >
+        <button onClick={() => setChangePasswordOpen(true)} className="nav-link mb-2">
+          <KeyRound className="w-4 h-4" />
+          Change password
+        </button>
+        <button onClick={handleLogout} className="nav-link nav-link--danger">
           <LogOut className="w-4 h-4" />
           Sign out
         </button>
@@ -151,6 +189,71 @@ export default function Layout() {
           </div>
         </main>
       </div>
+
+      <Modal
+        isOpen={changePasswordOpen}
+        onClose={closePasswordModal}
+        title="Change Password"
+        size="sm"
+      >
+        <form onSubmit={handleChangePassword} className="space-y-4">
+          <p className="text-sm text-surface-600 leading-6">
+            Update the password for your currently signed-in account.
+          </p>
+
+          {passwordError && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+              <Lock className="w-4 h-4 flex-shrink-0" />
+              {passwordError}
+            </div>
+          )}
+
+          <div>
+            <label className="label">Current password</label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="input"
+              placeholder="Enter current password"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="label">New password</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="input"
+              placeholder="At least 8 characters"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="label">Confirm new password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="input"
+              placeholder="Repeat the new password"
+              required
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={closePasswordModal} className="btn-secondary">
+              Cancel
+            </button>
+            <button type="submit" disabled={passwordLoading} className="btn-primary">
+              {passwordLoading ? 'Updating…' : 'Update password'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

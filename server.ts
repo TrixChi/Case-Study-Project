@@ -2,10 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-import authRoutes from './routes/auth.js';
-import enrollmentRoutes from './routes/enrollment.js';
-import paymentRoutes from './routes/payment.js';
-import recordsRoutes from './routes/records.js';
+import authRoutes from './src/routes/auth.js';
+import enrollmentRoutes from './src/routes/enrollment.js';
+import paymentRoutes from './src/routes/payment.js';
+import recordsRoutes from './src/routes/records.js';
 
 dotenv.config();
 

@@ -16,18 +16,26 @@ export interface Student {
   stuLastName: string;
   stuContactInfo: string;
   address: string;
-  status: string;
+  status: 'enrolled' | 'graduate' | 'unpaid' | 'missing fees';
   parentID?: number;
   userId?: string;
+  email?: string;
+  parent?: Parent;
 }
 
 export interface Parent {
   parentID: number;
+  email?: string;
   parentFirstName: string;
   parentMiddleName?: string;
   parentLastName: string;
   contactInfo: string;
   relationship: string;
+  studentID?: number;
+  relationshipStatus?: 'pending' | 'approved' | 'rejected';
+  validatedBy?: number;
+  validatedAt?: string;
+  student?: Student;
   userId?: string;
 }
 
@@ -36,7 +44,9 @@ export interface Tutor {
   tutorFirstName: string;
   tutorLastName: string;
   specialization: string;
+  status: 'active' | 'on leave' | 'dismissed';
   userId?: string;
+  email?: string;
 }
 
 export interface AdminStaff {
@@ -53,6 +63,8 @@ export interface Subject {
   units: number;
   description?: string;
   tutorID?: number;
+  fee: number;
+  tutor?: Tutor;
 }
 
 export interface Enrollment {
@@ -75,6 +87,7 @@ export interface Attendance {
   subjectID?: number;
   tutorID?: number;
   student?: Student;
+  tutor?: Tutor;
 }
 
 export interface Grade {
