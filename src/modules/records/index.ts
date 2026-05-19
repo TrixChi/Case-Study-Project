@@ -662,6 +662,14 @@ router.post('/parents', authorize('admin'), async (req: AuthRequest, res: Respon
       .single();
 
     if (error) throw error;
+    // If this parent is linked to a student, update that student's parentID
+    if (data && studentID) {
+      const { error: studentUpdateError } = await supabase
+        .from('student')
+        .update({ parentID: Number(data.parentID) })
+        .eq('studentID', Number(studentID));
+      if (studentUpdateError) throw studentUpdateError;
+    }
     return res.status(201).json({ success: true, data, message: 'Parent request submitted' });
   } catch (err) {
     console.error('POST /records/parents failed', err);
@@ -736,6 +744,14 @@ router.post('/parents/me', authorize('student'), async (req: AuthRequest, res: R
         .single();
 
     if (error) throw error;
+    // Ensure the student's parentID is set when a parent is created/updated
+    if (data && data.parentID && studentID) {
+      const { error: studentUpdateError } = await supabase
+        .from('student')
+        .update({ parentID: Number(data.parentID) })
+        .eq('studentID', Number(studentID));
+      if (studentUpdateError) throw studentUpdateError;
+    }
     return res.status(existingParent ? 200 : 201).json({ success: true, data, message: 'Parent request submitted' });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
