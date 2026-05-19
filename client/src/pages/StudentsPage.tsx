@@ -25,6 +25,14 @@ const statusOptions = [
   { value: 'missing fees', label: 'Missing Fees' },
 ] as const;
 
+const generateStudentEmail = (firstName: string, lastName: string) => {
+  return `${lastName.trim().toLowerCase()}.${firstName
+    .trim()
+    .toLowerCase()}@abclearning.com`;
+};
+
+const DEFAULT_PASSWORD = 'ABClearning2026';
+
 export default function StudentsPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
@@ -36,7 +44,7 @@ export default function StudentsPage() {
   const [form, setForm] = useState(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
 
-  const { data: students = [], isLoading } = useQuery({
+  const { data: students = [], isLoading, isError, error } = useQuery({
     queryKey: ['students'],
     queryFn: async () => {
       const res = await api.get('/records/students');
@@ -53,12 +61,17 @@ export default function StudentsPage() {
     enabled: isAdmin,
   });
 
+  const parentNameById = parents.reduce<Record<number, string>>((accumulator, parent) => {
+    accumulator[parent.parentID] = `${parent.parentFirstName} ${parent.parentLastName}`.trim();
+    return accumulator;
+  }, {});
+
   const openCreate = () => { setEditing(null); setForm(emptyForm); setShowModal(true); };
 
   const openEdit = (s: Student) => {
     setEditing(s);
     setForm({
-      email: s.email || '',
+      email: s.email || generateStudentEmail(s.stuFirstName, s.stuLastName),
       password: '',
       stuFirstName: s.stuFirstName,
       stuMiddleName: s.stuMiddleName || '',
@@ -75,6 +88,7 @@ export default function StudentsPage() {
     mutationFn: (data: typeof form) =>
       api.post('/records/students', {
         ...data,
+        email: data.email || generateStudentEmail(data.stuFirstName, data.stuLastName),
         parentID: data.parentID ? Number(data.parentID) : undefined,
       }),
     onSuccess: () => { toast.success('Student added'); qc.invalidateQueries({ queryKey: ['students'] }); setShowModal(false); },
@@ -84,7 +98,7 @@ export default function StudentsPage() {
   const updateMutation = useMutation({
     mutationFn: (data: typeof form) =>
       api.patch(`/records/students/${editing?.studentID}`, {
-        email: data.email,
+        email: data.email || generateStudentEmail(data.stuFirstName, data.stuLastName),
         stuFirstName: data.stuFirstName,
         stuMiddleName: data.stuMiddleName,
         stuLastName: data.stuLastName,
@@ -92,7 +106,7 @@ export default function StudentsPage() {
         address: data.address,
         status: data.status,
         parentID: data.parentID ? Number(data.parentID) : null,
-        password: data.password?.trim() || 'ABClearning2026',
+        password: data.password?.trim() || DEFAULT_PASSWORD,
       }),
     onSuccess: () => { toast.success('Student updated'); qc.invalidateQueries({ queryKey: ['students'] }); setShowModal(false); },
     onError: (error: { response?: { data?: { error?: string } } }) => toast.error(error.response?.data?.error || 'Failed to update student'),
@@ -111,8 +125,11 @@ export default function StudentsPage() {
   );
 
   const handleSubmit = () => {
-    if (editing) updateMutation.mutate(form);
-    else createMutation.mutate(form);
+    if (editing) {
+      updateMutation.mutate(form);
+      return;
+    }
+    createMutation.mutate(form);
   };
 
   return (
@@ -145,6 +162,11 @@ export default function StudentsPage() {
           <div className="flex items-center justify-center py-16">
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : isError ? (
+          <div className="px-5 py-8 text-center text-red-600">
+            <p className="text-sm font-medium">Unable to load students</p>
+            <p className="text-xs text-red-500 mt-1">{(error as { message?: string })?.message || 'Check the records API route and Supabase connection.'}</p>
+          </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-surface-400">
             <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -172,12 +194,12 @@ export default function StudentsPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
                           <span className="text-white text-xs font-semibold">
-                            {s.stuFirstName[0]}{s.stuLastName[0]}
+                            {(s.stuFirstName?.[0] ?? '')}{(s.stuLastName?.[0] ?? '')}
                           </span>
                         </div>
                         <div>
                           <p className="font-medium text-surface-800">
-                            {s.stuFirstName} {s.stuMiddleName ? s.stuMiddleName[0] + '. ' : ''}{s.stuLastName}
+                            {s.stuFirstName || ''} {s.stuMiddleName ? s.stuMiddleName[0] + '. ' : ''}{s.stuLastName || ''}
                           </p>
                         </div>
                       </div>
@@ -190,9 +212,7 @@ export default function StudentsPage() {
                       </span>
                     </td>
                     <td className="table-cell text-surface-500">
-                      {s.parent
-                        ? `${(s.parent as Parent).parentFirstName} ${(s.parent as Parent).parentLastName}`
-                        : '—'}
+                      {s.parentID ? parentNameById[s.parentID] || `Parent #${s.parentID}` : '—'}
                     </td>
                     {isAdmin && (
                       <td className="table-cell text-right">
@@ -225,7 +245,11 @@ export default function StudentsPage() {
           </div>
           <div>
             <label className="label">First Name *</label>
-            <input className="input" value={form.stuFirstName} onChange={e => setForm(f => ({ ...f, stuFirstName: e.target.value }))} placeholder="Juan" />
+            <input className="input" value={form.stuFirstName} onChange={e => setForm(f => {
+              const stuFirstName = e.target.value;
+              const email = stuFirstName && f.stuLastName ? generateStudentEmail(stuFirstName, f.stuLastName) : f.email;
+              return { ...f, stuFirstName, email };
+            })} placeholder="Juan" />
           </div>
           <div>
             <label className="label">Middle Name</label>
@@ -233,7 +257,11 @@ export default function StudentsPage() {
           </div>
           <div>
             <label className="label">Last Name *</label>
-            <input className="input" value={form.stuLastName} onChange={e => setForm(f => ({ ...f, stuLastName: e.target.value }))} placeholder="Dela Cruz" />
+            <input className="input" value={form.stuLastName} onChange={e => setForm(f => {
+              const stuLastName = e.target.value;
+              const email = f.stuFirstName && stuLastName ? generateStudentEmail(f.stuFirstName, stuLastName) : f.email;
+              return { ...f, stuLastName, email };
+            })} placeholder="Dela Cruz" />
           </div>
           <div>
             <label className="label">Contact Info</label>
@@ -259,7 +287,14 @@ export default function StudentsPage() {
             </select>
           </div>
           <div className="col-span-2 flex justify-end gap-3 pt-2">
-            <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
+            <button
+              onClick={() => {
+                setShowModal(false);
+              }}
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
             <button
               onClick={handleSubmit}
               disabled={
@@ -267,7 +302,6 @@ export default function StudentsPage() {
                 !form.stuFirstName ||
                 !form.stuLastName ||
                 !form.stuContactInfo ||
-                !form.address ||
                 createMutation.isPending ||
                 updateMutation.isPending
               }

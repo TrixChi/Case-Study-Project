@@ -8,6 +8,7 @@ router.use(authenticate);
 
 const STUDENT_STATUSES = ['enrolled', 'graduate', 'unpaid', 'missing fees'] as const;
 const RELATIONSHIP_STATUSES = ['pending', 'approved', 'rejected'] as const;
+const PARENT_APPROVAL_STATUSES = ['pending', 'approved', 'rejected'] as const;
 
 function isValidStudentStatus(status: unknown): status is (typeof STUDENT_STATUSES)[number] {
   return typeof status === 'string' && STUDENT_STATUSES.includes(status as (typeof STUDENT_STATUSES)[number]);
@@ -21,7 +22,7 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
     if (role === 'student') {
       const { data, error } = await supabase
         .from('student')
-        .select('*, parent(*)')
+        .select('*')
         .eq('studentID', profileId)
         .single();
       if (error) throw error;
@@ -39,11 +40,12 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
 
     const { data, error } = await supabase
       .from('student')
-      .select('*, parent(parentFirstName, parentLastName, contactInfo, relationship)')
+      .select('*')
       .order('stuLastName');
     if (error) throw error;
     return res.json({ success: true, data });
   } catch (err) {
+    console.error('GET /records/students failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -62,15 +64,15 @@ router.post('/students', authorize('admin'), async (req: AuthRequest, res: Respo
       parentID,
     } = req.body;
 
-    if (!email || !password || !stuFirstName || !stuLastName || !stuContactInfo || !address) {
-      return res.status(400).json({ success: false, error: 'email, password, stuFirstName, stuLastName, stuContactInfo, and address are required' });
+    if (!email || !stuFirstName || !stuLastName || !stuContactInfo || !address) {
+      return res.status(400).json({ success: false, error: 'email, stuFirstName, stuLastName, stuContactInfo, and address are required' });
     }
 
     if (status && !isValidStudentStatus(status)) {
       return res.status(400).json({ success: false, error: 'Invalid status' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
     const { data, error } = await supabase
       .from('student')
       .insert({
@@ -163,6 +165,29 @@ function isTwoDecimalFee(value: unknown) {
 
 function isValidRelationshipStatus(value: unknown): value is (typeof RELATIONSHIP_STATUSES)[number] {
   return typeof value === 'string' && RELATIONSHIP_STATUSES.includes(value as (typeof RELATIONSHIP_STATUSES)[number]);
+}
+
+function isValidParentApprovalStatus(value: unknown): value is (typeof PARENT_APPROVAL_STATUSES)[number] {
+  return typeof value === 'string' && PARENT_APPROVAL_STATUSES.includes(value as (typeof PARENT_APPROVAL_STATUSES)[number]);
+}
+
+function sortParentsByApproval<T extends { approved?: string | null; parentLastName?: string | null }>(parents: T[]) {
+  const priority: Record<string, number> = {
+    pending: 0,
+    approved: 1,
+    rejected: 2,
+  };
+
+  return [...parents].sort((left, right) => {
+    const leftPriority = priority[left.approved || 'pending'] ?? 99;
+    const rightPriority = priority[right.approved || 'pending'] ?? 99;
+
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    return String(left.parentLastName || '').localeCompare(String(right.parentLastName || ''));
+  });
 }
 
 router.post('/subjects', authorize('admin'), async (req: AuthRequest, res: Response) => {
@@ -433,15 +458,15 @@ router.post('/tutors', authorize('admin'), async (req: AuthRequest, res: Respons
   try {
     const { email, password, tutorFirstName, tutorLastName, specialization, status } = req.body;
 
-    if (!email || !password || !tutorFirstName || !tutorLastName || !specialization) {
-      return res.status(400).json({ success: false, error: 'email, password, tutorFirstName, tutorLastName, and specialization are required' });
+    if (!email || !tutorFirstName || !tutorLastName || !specialization) {
+      return res.status(400).json({ success: false, error: 'email, tutorFirstName, tutorLastName, and specialization are required' });
     }
 
     if (status && !['active', 'on leave', 'dismissed'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Invalid tutor status' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
 
     const { data, error } = await supabase
       .from('tutor')
@@ -523,12 +548,12 @@ router.get('/parents', authorize('admin'), async (_req: AuthRequest, res: Respon
   try {
     const { data, error } = await supabase
       .from('parent')
-      .select('*, student(studentID, stuFirstName, stuLastName)')
-      .order('relationshipStatus', { ascending: true })
+      .select('*')
       .order('parentLastName');
     if (error) throw error;
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: sortParentsByApproval(data || []) });
   } catch (err) {
+    console.error('GET /records/parents failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -571,6 +596,7 @@ router.get('/parents/me', async (req: AuthRequest, res: Response) => {
     if (error) throw error;
     return res.json({ success: true, data });
   } catch (err) {
+    console.error('GET /records/parents/me failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -591,6 +617,54 @@ router.get('/parents/lookup', async (req: AuthRequest, res: Response) => {
     if (error && error.code !== 'PGRST116') throw error;
     return res.json({ success: true, data: data || null });
   } catch (err) {
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+router.post('/parents', authorize('admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { email, password, parentFirstName, parentMiddleName, parentLastName, contactInfo, relationship, studentID } = req.body;
+
+    if (!email || !parentFirstName || !parentLastName || !contactInfo || !relationship) {
+      return res.status(400).json({ success: false, error: 'email, parentFirstName, parentLastName, contactInfo, and relationship are required' });
+    }
+
+    if (studentID) {
+      const { data: student, error: studentError } = await supabase
+        .from('student')
+        .select('studentID, parentID')
+        .eq('studentID', Number(studentID))
+        .single();
+
+      if (studentError) throw studentError;
+      if (student?.parentID) {
+        return res.status(409).json({ success: false, error: 'This student already has a parent linked' });
+      }
+    }
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
+
+    const { data, error } = await supabase
+      .from('parent')
+      .insert({
+        email: normalizedEmail,
+        encrypted_password: passwordHash,
+        parentFirstName,
+        parentMiddleName: parentMiddleName || null,
+        parentLastName,
+        contactInfo,
+        relationshipStatus: relationship,
+        studentID: studentID ? Number(studentID) : null,
+        approved: 'approved',
+      })
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    return res.status(201).json({ success: true, data, message: 'Parent request submitted' });
+  } catch (err) {
+    console.error('POST /records/parents failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -623,17 +697,17 @@ router.post('/parents/me', authorize('student'), async (req: AuthRequest, res: R
       return res.status(409).json({ success: false, error: 'That parent account is already linked to another student' });
     }
 
-    if (!existingParent && (!email || !parentFirstName || !parentLastName || !contactInfo || !relationship || !password)) {
-      return res.status(400).json({ success: false, error: 'email, password, parentFirstName, parentLastName, contactInfo, and relationship are required when creating a new account' });
+    if (!existingParent && (!email || !parentFirstName || !parentLastName || !contactInfo || !relationship)) {
+      return res.status(400).json({ success: false, error: 'email, parentFirstName, parentLastName, contactInfo, and relationship are required when creating a new account' });
     }
+
+    const resolvedPassword = String(password || '').trim() || 'ABClearning2026';
 
     const payload: Record<string, unknown> = {
       email: normalizedEmail,
-      relationship,
+      relationshipStatus: relationship,
       studentID,
-      relationshipStatus: 'pending',
-      validatedBy: null,
-      validatedAt: null,
+      approved: 'approved',
     };
 
     if (parentFirstName) payload.parentFirstName = parentFirstName;
@@ -642,7 +716,7 @@ router.post('/parents/me', authorize('student'), async (req: AuthRequest, res: R
     if (contactInfo) payload.contactInfo = contactInfo;
 
     if (!existingParent) {
-      payload.encrypted_password = await bcrypt.hash(String(password), 12);
+      payload.encrypted_password = await bcrypt.hash(resolvedPassword, 12);
     }
 
     const { data, error } = existingParent
@@ -671,8 +745,8 @@ router.post('/parents/me', authorize('student'), async (req: AuthRequest, res: R
 router.patch('/parents/:id/validate', authorize('admin'), async (req: AuthRequest, res: Response) => {
   try {
     const { status } = req.body;
-    if (!isValidRelationshipStatus(status)) {
-      return res.status(400).json({ success: false, error: 'Invalid relationship status' });
+    if (!isValidParentApprovalStatus(status) || status === 'pending') {
+      return res.status(400).json({ success: false, error: 'Invalid validation status' });
     }
 
     const { data: parent, error: parentError } = await supabase
@@ -686,9 +760,7 @@ router.patch('/parents/:id/validate', authorize('admin'), async (req: AuthReques
     const { error: updateError } = await supabase
       .from('parent')
       .update({
-        relationshipStatus: status,
-        validatedBy: req.user!.profileId,
-        validatedAt: new Date().toISOString(),
+        approved: status,
       })
       .eq('parentID', req.params.id);
 

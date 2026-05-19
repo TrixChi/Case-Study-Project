@@ -36,6 +36,7 @@ export default function TutorsPage() {
   const [editing, setEditing] = useState<Tutor | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<Tutor | null>(null);
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
 
   const { data: tutors = [], isLoading } = useQuery({
     queryKey: ['tutors'],
@@ -115,6 +116,21 @@ export default function TutorsPage() {
     `${t.tutorFirstName} ${t.tutorLastName}`.toLowerCase().includes(search.toLowerCase()) ||
     t.specialization?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const handleSubmit = () => {
+    if (editing) {
+      updateMutation.mutate(form);
+      return;
+    }
+
+    setShowCreateConfirm(true);
+  };
+
+  const executeCreate = () => {
+    createMutation.mutate(form);
+  };
+
+  const createConfirmMessage = `A tutor account will be created with these details:\n\nEmail: ${form.email}\nDefault Password: ABClearning2026\n\nProceed with creating the tutor account?`;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -225,9 +241,17 @@ export default function TutorsPage() {
             </div>
           </div>
           <div className="col-span-2 flex justify-end gap-3 pt-2">
-            <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
             <button
-              onClick={() => editing ? updateMutation.mutate(form) : createMutation.mutate(form)}
+              onClick={() => {
+                setShowModal(false);
+                setShowCreateConfirm(false);
+              }}
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
               disabled={!form.email || !form.tutorFirstName || !form.tutorLastName || !form.specialization || createMutation.isPending || updateMutation.isPending}
               className="btn-primary"
             >
@@ -236,6 +260,22 @@ export default function TutorsPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        isOpen={showCreateConfirm}
+        title="Confirm Tutor Account"
+        message={createConfirmMessage}
+        confirmLabel="Create Tutor"
+        cancelLabel="Back"
+        confirmClassName="btn-primary"
+        processingLabel="Creating…"
+        isProcessing={createMutation.isPending}
+        onClose={() => setShowCreateConfirm(false)}
+        onConfirm={() => {
+          setShowCreateConfirm(false);
+          executeCreate();
+        }}
+      />
 
       <ConfirmModal
         isOpen={!!deleteTarget}

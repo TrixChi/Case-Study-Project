@@ -28,9 +28,10 @@ export interface Parent {
   parentMiddleName?: string;
   parentLastName: string;
   contactInfo: string;
-  relationship: string;
+  relationship?: string;
+  relationshipStatus?: 'guardian' | 'mother' | 'father';
+  approved?: 'pending' | 'approved' | 'rejected' | null;
   studentID?: number;
-  relationshipStatus?: 'pending' | 'approved' | 'rejected';
   validatedBy?: number;
   validatedAt?: string;
   student?: Student;

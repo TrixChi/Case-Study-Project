@@ -12,11 +12,18 @@ export interface Student {
 
 export interface Parent {
   parentID: number;
+  email?: string;
   parentFirstName: string;
   parentMiddleName?: string;
   parentLastName: string;
   contactInfo: string;
-  relationship: string;
+  relationship?: string;
+  relationshipStatus?: 'guardian' | 'mother' | 'father';
+  approved?: 'pending' | 'approved' | 'rejected' | null;
+  studentID?: number;
+  validatedBy?: number;
+  validatedAt?: string;
+  student?: Student;
 }
 
 export interface Tutor {
