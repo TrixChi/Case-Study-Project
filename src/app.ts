@@ -1,0 +1,40 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+
+import authRoutes from './routes/auth.js';
+import enrollmentRoutes from './modules/enrollment/index.js';
+import paymentRoutes from './modules/payment/index.js';
+import recordsRoutes from './modules/records/index.js';
+
+dotenv.config();
+
+const app = express();
+
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://your-frontend-domain.com']
+    : ['http://localhost:5173', 'http://localhost:3000'],
+  credentials: true,
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Health check
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/enrollment', enrollmentRoutes);
+app.use('/api/payment', paymentRoutes);
+app.use('/api/records', recordsRoutes);
+
+// 404 handler
+app.use((_req, res) => {
+  res.status(404).json({ success: false, error: 'Route not found' });
+});
+
+export default app;
