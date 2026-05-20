@@ -20,11 +20,12 @@ const AUTH_TABLES = [
     { table: 'parent', role: 'parent', idColumn: 'parentID', firstNameColumn: 'parentFirstName', lastNameColumn: 'parentLastName' },
 ];
 async function findUserByEmail(email) {
+    const normalizedEmail = email.toLowerCase().trim();
     for (const config of AUTH_TABLES) {
         const { data, error } = await supabase_js_1.supabase
             .from(config.table)
             .select('*')
-            .eq('email', email)
+            .ilike('email', normalizedEmail)
             .single();
         if (data) {
             return { config, record: data };
@@ -36,11 +37,12 @@ async function findUserByEmail(email) {
     return null;
 }
 async function updatePasswordByEmail(email, passwordHash) {
+    const normalizedEmail = email.toLowerCase().trim();
     for (const config of AUTH_TABLES) {
         const { data, error } = await supabase_js_1.supabase
             .from(config.table)
             .update({ encrypted_password: passwordHash })
-            .eq('email', email)
+            .ilike('email', normalizedEmail)
             .select(config.idColumn)
             .single();
         if (data) {
@@ -73,7 +75,7 @@ router.post('/login', async (req, res) => {
         if (!email || !password) {
             return res.status(400).json({ success: false, error: 'Email and password required' });
         }
-        const lookup = await findUserByEmail(email.toLowerCase());
+        const lookup = await findUserByEmail(email);
         if (!lookup) {
             return res.status(401).json({ success: false, error: 'Invalid credentials' });
         }

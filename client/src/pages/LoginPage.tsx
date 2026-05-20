@@ -25,7 +25,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await api.post('/auth/login', { email, password });
+      const res = await api.post('/auth/login', { email: email.trim(), password });
       const { token, user } = res.data.data;
       login({
         id: user.id,
@@ -52,7 +52,7 @@ export default function LoginPage() {
     setResetLoading(true);
 
     try {
-      const res = await api.post('/auth/forgot-password', { email: resetEmail });
+      const res = await api.post('/auth/forgot-password', { email: resetEmail.trim() });
       const temporaryPassword = res.data?.data?.temporaryPassword as string | undefined;
       setResetResult(
         temporaryPassword

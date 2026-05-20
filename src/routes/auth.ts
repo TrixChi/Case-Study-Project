@@ -28,11 +28,13 @@ const AUTH_TABLES: AuthTableConfig[] = [
 ];
 
 async function findUserByEmail(email: string) {
+  const normalizedEmail = email.toLowerCase().trim();
+
   for (const config of AUTH_TABLES) {
     const { data, error } = await supabase
       .from(config.table)
       .select('*')
-      .eq('email', email)
+      .ilike('email', normalizedEmail)
       .single();
 
     if (data) {
@@ -48,11 +50,13 @@ async function findUserByEmail(email: string) {
 }
 
 async function updatePasswordByEmail(email: string, passwordHash: string) {
+  const normalizedEmail = email.toLowerCase().trim();
+
   for (const config of AUTH_TABLES) {
     const { data, error } = await supabase
       .from(config.table)
       .update({ encrypted_password: passwordHash })
-      .eq('email', email)
+      .ilike('email', normalizedEmail)
       .select(config.idColumn)
       .single();
 
@@ -95,7 +99,7 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email and password required' });
     }
 
-    const lookup = await findUserByEmail(email.toLowerCase());
+    const lookup = await findUserByEmail(email);
 
     if (!lookup) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
