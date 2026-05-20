@@ -91,6 +91,13 @@ export default function ParentModulePage() {
   });
 
   const parentList = allParents;
+  const [expandedParent, setExpandedParent] = useState<number | null>(null);
+  const [parentStudents, setParentStudents] = useState<Record<number, Student[]>>({});
+
+  const fetchParentStudents = async (parentID: number) => {
+    const res = await api.get(`/records/parents/${parentID}/students`);
+    return res.data.data as Student[];
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -160,18 +167,56 @@ export default function ParentModulePage() {
             ) : (
               <div className="divide-y divide-surface-50">
                 {parentList.map((parent) => (
-                  <div key={parent.parentID} className="px-5 py-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-medium text-surface-900">
-                        {parent.parentFirstName} {parent.parentLastName}
-                      </p>
-                      <p className="text-sm text-surface-600">{parent.contactInfo}</p>
-                      <p className="text-sm text-surface-500">
-                        Relationship: {parent.relationshipStatus || parent.relationship}
-                        {' '}· Student ID: #{parent.studentID || '—'}
-                      </p>
+                  <div key={parent.parentID} className="px-5 py-4 border-b border-surface-50">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <p className="font-medium text-surface-900">
+                          {parent.parentFirstName} {parent.parentLastName}
+                        </p>
+                        <p className="text-sm text-surface-600">{parent.contactInfo}</p>
+                        <p className="text-sm text-surface-500">
+                          Relationship: {parent.relationshipStatus || parent.relationship}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          className="btn-secondary"
+                          onClick={async () => {
+                            if (expandedParent === parent.parentID) {
+                              setExpandedParent(null);
+                              return;
+                            }
+                            setExpandedParent(parent.parentID);
+                            if (!parentStudents[parent.parentID]) {
+                              try {
+                                const studentsForParent = await fetchParentStudents(parent.parentID);
+                                setParentStudents((prev) => ({ ...prev, [parent.parentID]: studentsForParent }));
+                              } catch (err) {
+                                toast.error('Failed to load linked students');
+                              }
+                            }
+                          }}
+                        >
+                          View students
+                        </button>
+                        <span className="badge badge-green">{getApprovalState(parent)}</span>
+                      </div>
                     </div>
-                    <span className="badge badge-green">{getApprovalState(parent)}</span>
+
+                    {expandedParent === parent.parentID && (
+                      <div className="mt-3 bg-surface-50 rounded-lg p-3">
+                        <p className="text-sm text-surface-600 mb-2">Students linked to this parent:</p>
+                        {(parentStudents[parent.parentID] || []).length === 0 ? (
+                          <p className="text-sm text-surface-500">No students linked</p>
+                        ) : (
+                          <ul className="list-disc pl-5 text-sm text-surface-700">
+                            {(parentStudents[parent.parentID] || []).map((s) => (
+                              <li key={s.studentID}>#{s.studentID} — {s.stuFirstName} {s.stuLastName} ({s.status})</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

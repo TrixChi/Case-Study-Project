@@ -111,6 +111,7 @@ export interface Payment {
   balance: number;
   studentID: number;
   student?: Student;
+  subject?: Subject;
 }
 
 export interface Transcript {

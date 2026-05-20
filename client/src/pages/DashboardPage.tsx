@@ -3,6 +3,7 @@ import { Users, ClipboardList, CreditCard, GraduationCap, TrendingUp, AlertCircl
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Enrollment, Payment, Grade, Attendance } from '../types';
+import { useState, useEffect } from 'react';
 
 interface StatCardProps {
   title: string;
@@ -47,6 +48,32 @@ export default function DashboardPage() {
     enabled: user?.role !== 'tutor',
   });
 
+  const { data: parentDashboard } = useQuery({
+    queryKey: ['parentDashboard'],
+    queryFn: async () => {
+      const res = await api.get('/records/parents/me/dashboard');
+      return res.data.data as any;
+    },
+    enabled: user?.role === 'parent',
+  });
+
+  const { data: feeSummary } = useQuery({
+    queryKey: ['feeSummary', user?.role],
+    queryFn: async () => {
+      const res = await api.get('/payment/summary');
+      return res.data.data as any;
+    },
+    enabled: !!user,
+  });
+
+  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (user?.role === 'parent' && parentDashboard?.students && parentDashboard.students.length > 0) {
+      setSelectedStudentId(parentDashboard.students[0].studentID);
+    }
+  }, [user?.role, parentDashboard]);
+
   const { data: grades } = useQuery({
     queryKey: ['grades'],
     queryFn: async () => {
@@ -74,12 +101,30 @@ export default function DashboardPage() {
 
   const pendingEnrollments = enrollments?.filter(e => e.status === 'pending').length || 0;
   const approvedEnrollments = enrollments?.filter(e => e.status === 'approved').length || 0;
-  const totalPayments = payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-  const avgGrade = grades && grades.length > 0
-    ? (grades.reduce((sum, g) => sum + Number(g.gradeValue), 0) / grades.length).toFixed(1)
-    : '—';
-  const presentCount = attendance?.filter(a => a.status === 'present').length || 0;
-  const totalAttendance = attendance?.length || 0;
+
+  const summaryTotals = feeSummary?.totals || feeSummary;
+  const totalPayments = summaryTotals?.totalPaid || payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+  const missingFees = summaryTotals?.missingFees || 0;
+
+  const avgGrade = user?.role === 'parent'
+    ? (() => {
+        const p = parentDashboard?.students?.find((s: any) => s.studentID === selectedStudentId);
+        return p ? String(p.avgGrade ?? '—') : '—';
+      })()
+    : grades && grades.length > 0
+      ? (grades.reduce((sum, g) => sum + Number(g.gradeValue), 0) / grades.length).toFixed(1)
+      : '—';
+
+  const presentCount = user?.role === 'parent'
+    ? (() => {
+        const p = parentDashboard?.students?.find((s: any) => s.studentID === selectedStudentId);
+        return p ? Math.round(((p.attendanceRate ?? 0) / 100) * (attendance?.filter(a => a.studentID === selectedStudentId).length || 0)) : 0;
+      })()
+    : attendance?.filter(a => a.status === 'present').length || 0;
+
+  const totalAttendance = user?.role === 'parent'
+    ? (attendance?.filter(a => a.studentID === selectedStudentId).length || 0)
+    : attendance?.length || 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -102,6 +147,16 @@ export default function DashboardPage() {
             color="bg-blue-50"
           />
         )}
+        {user?.role === 'parent' && (
+          <div className="card p-5">
+            <label className="label">Select student</label>
+            <select className="input" value={selectedStudentId ?? ''} onChange={(e) => setSelectedStudentId(Number(e.target.value))}>
+              {(parentDashboard?.students || []).map((s: any) => (
+                <option key={s.studentID} value={s.studentID}>{s.stuFirstName} {s.stuLastName}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <StatCard
           title="Enrollments"
           value={approvedEnrollments}
@@ -116,6 +171,15 @@ export default function DashboardPage() {
             icon={<CreditCard className="w-5 h-5 text-amber-600" />}
             color="bg-amber-50"
             sub={`${payments?.length || 0} transactions`}
+          />
+        )}
+        {user?.role !== 'tutor' && (
+          <StatCard
+            title="Missing Fees"
+            value={`₱${missingFees.toLocaleString()}`}
+            icon={<AlertCircle className="w-5 h-5 text-rose-600" />}
+            color="bg-rose-50"
+            sub={feeSummary?.students ? `${feeSummary.students.length} student${feeSummary.students.length !== 1 ? 's' : ''}` : undefined}
           />
         )}
         <StatCard
@@ -133,6 +197,43 @@ export default function DashboardPage() {
           sub={`${presentCount} present / ${totalAttendance} total`}
         />
       </div>
+
+      {feeSummary && user?.role !== 'tutor' && (
+        <div className="card overflow-hidden">
+          <div className="px-5 py-4 border-b border-surface-100">
+            <h3 className="section-title text-base">Fee breakdown</h3>
+          </div>
+          <div className="divide-y divide-surface-50">
+            {(feeSummary.students || [feeSummary]).flatMap((student: any) => {
+              const subjects = student.subjects || [];
+              return subjects.length > 0
+                ? [
+                    <div key={student.studentID} className="px-5 py-4">
+                      <div className="flex items-center justify-between gap-4 mb-3">
+                        <div>
+                          <p className="text-sm font-medium text-surface-900">{student.stuFirstName} {student.stuLastName}</p>
+                          <p className="text-xs text-surface-500">Missing fees: ₱{Number(student.missingFees || 0).toLocaleString()}</p>
+                        </div>
+                        <span className="badge badge-red">₱{Number(student.missingFees || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                        {subjects.map((subject: any) => (
+                          <div key={subject.subjectID} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                            <p className="text-sm font-medium text-surface-800">{subject.subjectName}</p>
+                            <p className="text-xs text-surface-500 mt-1">Fee: ₱{Number(subject.fee || 0).toLocaleString()}</p>
+                            <p className={`text-xs mt-1 ${Number(subject.balance || 0) > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                              Balance: ₱{Number(subject.balance || 0).toLocaleString()}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ]
+                : [];
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Pending alerts for admin */}
       {user?.role === 'admin' && pendingEnrollments > 0 && (

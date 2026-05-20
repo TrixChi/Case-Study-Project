@@ -264,12 +264,12 @@ router.get('/grades', async (req: AuthRequest, res: Response) => {
       .order('gradeID', { ascending: false });
 
     if (role === 'student') {
-      query = query.eq('studentID', profileId).eq('released', true);
+      query = query.eq('studentID', profileId);
     } else if (role === 'parent') {
       const { data: students } = await supabase
         .from('student').select('studentID').eq('parentID', profileId);
       const ids = (students || []).map((s: { studentID: number }) => s.studentID);
-      query = query.in('studentID', ids.length > 0 ? ids : [0]).eq('released', true);
+      query = query.in('studentID', ids.length > 0 ? ids : [0]);
     } else if (role === 'tutor') {
       query = query.eq('tutorID', profileId);
     }
@@ -291,7 +291,7 @@ router.post('/grades', authorize('admin', 'tutor'), async (req: AuthRequest, res
 
     const { data, error } = await supabase
       .from('grade')
-      .insert({ studentID, subjectID, tutorID, gradeValue: Number(gradeValue), academicStanding: standing, released: false })
+      .insert({ studentID, subjectID, tutorID, gradeValue: Number(gradeValue), academicStanding: standing, released: true })
       .select(`*, student(stuFirstName, stuLastName), subject(subjectName), tutor(tutorFirstName, tutorLastName)`) 
       .single();
     if (error) throw error;
@@ -306,8 +306,6 @@ router.patch('/grades/:id', authorize('admin', 'tutor'), async (req: AuthRequest
     const updates: Record<string, unknown> = { ...req.body };
     if (updates.gradeValue) {
       updates.academicStanding = Number(updates.gradeValue) >= 75 ? 'Passed' : 'Failed';
-      // when tutor/admin updates grade, mark released=false until admin re-verifies
-      updates.released = false;
     }
     const { data, error } = await supabase
       .from('grade')
@@ -359,12 +357,12 @@ router.get('/attendance', async (req: AuthRequest, res: Response) => {
       .order('attendanceDate', { ascending: false });
 
     if (role === 'student') {
-      query = query.eq('studentID', profileId).eq('released', true);
+      query = query.eq('studentID', profileId);
     } else if (role === 'parent') {
       const { data: students } = await supabase
         .from('student').select('studentID').eq('parentID', profileId);
       const ids = (students || []).map((s: { studentID: number }) => s.studentID);
-      query = query.in('studentID', ids.length > 0 ? ids : [0]).eq('released', true);
+      query = query.in('studentID', ids.length > 0 ? ids : [0]);
     } else if (role === 'tutor') {
       query = query.eq('tutorID', profileId);
     }
@@ -390,7 +388,7 @@ router.post('/attendance', authorize('admin', 'tutor'), async (req: AuthRequest,
         tutorID,
         status: status || 'present',
         attendanceDate: attendanceDate || new Date().toISOString(),
-        released: false,
+        released: true,
       })
       .select(`*, student(stuFirstName, stuLastName)`) 
       .single();
@@ -617,6 +615,100 @@ router.get('/parents/lookup', async (req: AuthRequest, res: Response) => {
     if (error && error.code !== 'PGRST116') throw error;
     return res.json({ success: true, data: data || null });
   } catch (err) {
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// GET /records/parents/:id/students - admin can view students linked to a parent
+router.get('/parents/:id/students', authorize('admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const parentId = Number(req.params.id);
+    const { data, error } = await supabase
+      .from('student')
+      .select('studentID, stuFirstName, stuLastName, status')
+      .eq('parentID', parentId)
+      .order('stuLastName');
+    if (error) throw error;
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /records/parents/:id/students failed', err);
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// GET /records/parents/me/dashboard - parent dashboard aggregates
+router.get('/parents/me/dashboard', async (req: AuthRequest, res: Response) => {
+  try {
+    const { role, profileId } = req.user!;
+    if (role !== 'parent') return res.status(403).json({ success: false, error: 'Not allowed' });
+
+    // fetch students linked to this parent
+    const { data: students = [], error: studentsError } = await supabase
+      .from('student')
+      .select('studentID, stuFirstName, stuLastName')
+      .eq('parentID', profileId);
+    if (studentsError) throw studentsError;
+
+    // for each student compute avg grade, attendance rate, latest balance, enrollment count
+    const perStudent = await Promise.all((students || []).map(async (s: any) => {
+      const studentID = s.studentID;
+
+      // grades
+      const { data: grades = [], error: gradesError } = await supabase
+        .from('grade')
+        .select('gradeValue')
+        .eq('studentID', studentID);
+      if (gradesError) throw gradesError;
+      const gradeList = grades || [];
+      const avgGrade = gradeList.length ? gradeList.reduce((a: number, g: any) => a + Number(g.gradeValue), 0) / gradeList.length : null;
+
+      // attendance
+      const { data: attendance = [], error: attendanceError } = await supabase
+        .from('attendance')
+        .select('status')
+        .eq('studentID', studentID);
+      if (attendanceError) throw attendanceError;
+      const attendanceList = attendance || [];
+      const totalAttend = attendanceList.length;
+      const presentCount = attendanceList.filter((a: any) => String(a.status).toLowerCase() === 'present').length;
+      const attendanceRate = totalAttend ? (presentCount / totalAttend) * 100 : null;
+
+      // latest payment balance
+      const { data: lastPayment } = await supabase
+        .from('payment')
+        .select('balance')
+        .eq('studentID', studentID)
+        .order('paymentDate', { ascending: false })
+        .limit(1)
+        .single();
+      const balance = lastPayment ? Number(lastPayment.balance) : 0;
+
+      // enrollments count (approved)
+      const { data: enrollments = [], error: enrollError } = await supabase
+        .from('enrollment')
+        .select('enrollmentID')
+        .eq('studentID', studentID)
+        .eq('status', 'approved');
+      if (enrollError) throw enrollError;
+      const enrollmentCount = (enrollments || []).length || 0;
+
+      return {
+        studentID,
+        stuFirstName: s.stuFirstName,
+        stuLastName: s.stuLastName,
+        avgGrade: avgGrade === null ? null : Number(avgGrade.toFixed(2)),
+        attendanceRate: attendanceRate === null ? null : Number(attendanceRate.toFixed(2)),
+        balance,
+        enrollmentCount,
+      };
+    }));
+
+    const totalPendingBalance = perStudent.reduce((sum: number, p: any) => sum + Number(p.balance || 0), 0);
+    const totalEnrollments = perStudent.reduce((sum: number, p: any) => sum + Number(p.enrollmentCount || 0), 0);
+
+    return res.json({ success: true, data: { students: perStudent, totals: { totalPendingBalance, totalEnrollments } } });
+  } catch (err) {
+    console.error('GET /records/parents/me/dashboard failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });

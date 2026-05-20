@@ -5,13 +5,122 @@ import { authenticate, authorize, AuthRequest } from '../../middleware/auth.js';
 const router = Router();
 router.use(authenticate);
 
+type StudentFeeSubject = {
+  subjectID: number;
+  subjectName: string;
+  fee: number;
+  paid: number;
+  balance: number;
+};
+
+type StudentFeeSummary = {
+  studentID: number;
+  stuFirstName: string;
+  stuLastName: string;
+  totalFees: number;
+  totalPaid: number;
+  missingFees: number;
+  subjects: StudentFeeSubject[];
+};
+
+async function buildStudentFeeSummary(studentID: number): Promise<StudentFeeSummary> {
+  const [{ data: student }, { data: enrollments = [], error: enrollError }, { data: payments = [], error: paymentsError }] = await Promise.all([
+    supabase
+      .from('student')
+      .select('studentID, stuFirstName, stuLastName')
+      .eq('studentID', studentID)
+      .single(),
+    supabase
+      .from('enrollment')
+      .select('enrollmentDate, subject(subjectID, subjectName, fee)')
+      .eq('studentID', studentID)
+      .eq('status', 'approved')
+      .order('enrollmentDate', { ascending: true }),
+    supabase
+      .from('payment')
+      .select('amount, paymentDate, subjectID')
+      .eq('studentID', studentID)
+      .order('paymentDate', { ascending: true }),
+  ]);
+
+  if (enrollError) throw enrollError;
+  if (paymentsError) throw paymentsError;
+
+  const subjectMap = new Map<number, StudentFeeSubject>();
+  const enrollmentOrder: number[] = [];
+
+  (enrollments || []).forEach((enrollment: any) => {
+    const subject = enrollment.subject;
+    const subjectID = Number(subject?.subjectID);
+    if (!subjectID || subjectMap.has(subjectID)) return;
+
+    const fee = Number(subject?.fee || 0);
+    subjectMap.set(subjectID, {
+      subjectID,
+      subjectName: String(subject?.subjectName || 'Subject'),
+      fee,
+      paid: 0,
+      balance: fee,
+    });
+    enrollmentOrder.push(subjectID);
+  });
+
+  const orderedSubjects = enrollmentOrder
+    .map((subjectID) => subjectMap.get(subjectID))
+    .filter((subject): subject is StudentFeeSubject => Boolean(subject));
+
+  for (const payment of payments || []) {
+    const amount = Number(payment.amount || 0);
+    const paymentSubjectID = payment.subjectID ? Number(payment.subjectID) : null;
+
+    if (paymentSubjectID && subjectMap.has(paymentSubjectID)) {
+      const subject = subjectMap.get(paymentSubjectID)!;
+      subject.paid += amount;
+      subject.balance = Math.max(0, subject.fee - subject.paid);
+      continue;
+    }
+
+    let remaining = amount;
+    for (const subject of orderedSubjects) {
+      if (remaining <= 0) break;
+      const payable = Math.max(0, subject.fee - subject.paid);
+      if (payable <= 0) continue;
+      const applied = Math.min(payable, remaining);
+      subject.paid += applied;
+      subject.balance = Math.max(0, subject.fee - subject.paid);
+      remaining -= applied;
+    }
+  }
+
+  const subjects = orderedSubjects.map((subject) => ({
+    ...subject,
+    balance: Number(subject.balance.toFixed(2)),
+    paid: Number(subject.paid.toFixed(2)),
+    fee: Number(subject.fee.toFixed(2)),
+  }));
+
+  const totalFees = subjects.reduce((sum, subject) => sum + subject.fee, 0);
+  const totalPaid = Number((payments || []).reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0).toFixed(2));
+  const missingFees = Number(subjects.reduce((sum, subject) => sum + subject.balance, 0).toFixed(2));
+
+  return {
+    studentID,
+    stuFirstName: String(student?.stuFirstName || ''),
+    stuLastName: String(student?.stuLastName || ''),
+    totalFees: Number(totalFees.toFixed(2)),
+    totalPaid,
+    missingFees,
+    subjects,
+  };
+}
+
 // GET /api/payment
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const { role, profileId } = req.user!;
     let query = supabase
       .from('payment')
-      .select(`*, student(studentID, stuFirstName, stuLastName)`) 
+      .select(`*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName)`) 
       .order('paymentDate', { ascending: false });
 
     if (role === 'student') {
@@ -40,7 +149,7 @@ router.get('/student/:studentId', authorize('admin'), async (req: AuthRequest, r
   try {
     const { data: payments, error } = await supabase
       .from('payment')
-      .select(`*, student(studentID, stuFirstName, stuLastName)`)
+      .select(`*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName)`)
       .eq('studentID', req.params.studentId)
       .order('paymentDate', { ascending: false });
 
@@ -53,10 +162,63 @@ router.get('/student/:studentId', authorize('admin'), async (req: AuthRequest, r
   }
 });
 
+// GET /api/payment/summary - get per-subject balance and missing fees
+router.get('/summary', async (req: AuthRequest, res: Response) => {
+  try {
+    const { role, profileId } = req.user!;
+    const studentIdParam = req.query.studentID ? Number(req.query.studentID) : null;
+
+    let studentIds: number[] = [];
+
+    if (role === 'student') {
+      studentIds = [profileId];
+    } else if (role === 'parent') {
+      const { data: students } = await supabase
+        .from('student')
+        .select('studentID')
+        .eq('parentID', profileId);
+      studentIds = (students || []).map((student: { studentID: number }) => student.studentID);
+    } else if (role === 'admin') {
+      if (studentIdParam) {
+        studentIds = [studentIdParam];
+      } else {
+        const { data: students } = await supabase
+          .from('student')
+          .select('studentID');
+        studentIds = (students || []).map((student: { studentID: number }) => student.studentID);
+      }
+    } else {
+      return res.status(403).json({ success: false, error: 'Tutors cannot view fee summaries' });
+    }
+
+    if (studentIds.length === 0) {
+      return res.json({ success: true, data: { students: [], totals: { totalFees: 0, totalPaid: 0, missingFees: 0 } } });
+    }
+
+    const summaries = await Promise.all(studentIds.map((studentID) => buildStudentFeeSummary(studentID)));
+    const totals = summaries.reduce(
+      (accumulator, summary) => ({
+        totalFees: Number((accumulator.totalFees + summary.totalFees).toFixed(2)),
+        totalPaid: Number((accumulator.totalPaid + summary.totalPaid).toFixed(2)),
+        missingFees: Number((accumulator.missingFees + summary.missingFees).toFixed(2)),
+      }),
+      { totalFees: 0, totalPaid: 0, missingFees: 0 },
+    );
+
+    return res.json({
+      success: true,
+      data: studentIdParam || role === 'student' ? summaries[0] : { students: summaries, totals },
+    });
+  } catch (err) {
+    console.error('GET /payment/summary failed', err);
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
 // POST /api/payment - admin records payment
 router.post('/', authorize('admin'), async (req: AuthRequest, res: Response) => {
   try {
-    const { studentID, amount, receiptNo } = req.body;
+    const { studentID, amount, receiptNo, subjectID } = req.body;
     if (!studentID || !amount) {
       return res.status(400).json({ success: false, error: 'studentID and amount required' });
     }
@@ -78,12 +240,13 @@ router.post('/', authorize('admin'), async (req: AuthRequest, res: Response) => 
       .from('payment')
       .insert({
         studentID,
+        subjectID: subjectID || null,
         amount: Number(amount),
         paymentDate: new Date().toISOString(),
         receiptNo: generatedReceiptNo,
         balance: newBalance,
       })
-      .select(`*, student(studentID, stuFirstName, stuLastName)`)
+      .select(`*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName)`)
       .single();
 
     if (error) throw error;

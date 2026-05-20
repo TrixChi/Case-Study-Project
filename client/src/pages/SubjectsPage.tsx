@@ -78,7 +78,7 @@ export default function SubjectsPage() {
         subjectName: data.subjectName,
         units: Number(data.units),
         description: data.description || undefined,
-        tutorID: data.tutorID ? Number(data.tutorID) : undefined,
+        ...(data.tutorID ? { tutorID: Number(data.tutorID) } : {}),
         fee: data.fee,
       }),
     onSuccess: () => {
@@ -251,19 +251,26 @@ export default function SubjectsPage() {
             />
           </div>
           <div>
-            <label className="label">Tutor Assignment</label>
-            <select
-              className="input"
-              value={form.tutorID}
-              onChange={(e) => setForm((f) => ({ ...f, tutorID: e.target.value }))}
-            >
-              <option value="">Unassigned</option>
-              {tutors.map((t) => (
-                <option key={t.tutorID} value={t.tutorID}>
-                  {t.tutorFirstName} {t.tutorLastName} ({t.specialization})
-                </option>
-              ))}
-            </select>
+            <label className="label">Tutor Assignment <span className="text-surface-400">(optional)</span></label>
+            {tutors.length === 0 ? (
+              <div className="input bg-surface-100 text-surface-500 flex items-center justify-between">
+                <span>No tutors available right now</span>
+                <span className="text-xs">You can assign one later</span>
+              </div>
+            ) : (
+              <select
+                className="input"
+                value={form.tutorID}
+                onChange={(e) => setForm((f) => ({ ...f, tutorID: e.target.value }))}
+              >
+                <option value="">Unassigned</option>
+                {tutors.map((t) => (
+                  <option key={t.tutorID} value={t.tutorID}>
+                    {t.tutorFirstName} {t.tutorLastName} ({t.specialization})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label className="label">Fee *</label>

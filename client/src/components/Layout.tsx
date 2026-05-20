@@ -5,9 +5,10 @@ import {
   Menu, KeyRound, Lock
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { useState } from 'react';
-import toast from 'react-hot-toast';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import api from '../lib/api';
+import toast from 'react-hot-toast';
 import Modal from './Modal';
 
 interface NavItem {
@@ -22,7 +23,7 @@ const navItems: NavItem[] = [
   { to: '/enrollment', label: 'Enrollment', icon: <ClipboardList className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
   { to: '/payment', label: 'Payments', icon: <CreditCard className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
   { to: '/records/students', label: 'Students', icon: <Users className="w-4 h-4" />, roles: ['admin', 'tutor'] },
-  { to: '/records/parents', label: 'Parent/Guardian', icon: <KeyRound className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
+    { to: '/records/parents', label: 'Parent/Guardian', icon: <KeyRound className="w-4 h-4" />, roles: ['admin'] },
   { to: '/records/tutors', label: 'Tutors', icon: <GraduationCap className="w-4 h-4" />, roles: ['admin'] },
   { to: '/records/subjects', label: 'Subjects', icon: <BookOpen className="w-4 h-4" />, roles: ['admin', 'tutor', 'student', 'parent'] },
   { to: '/records/grades', label: 'Grades', icon: <GraduationCap className="w-4 h-4" />, roles: ['admin', 'tutor', 'student', 'parent'] },
@@ -144,6 +145,10 @@ export default function Layout() {
             </div>
           </div>
         </div>
+        {/* Parent linked indicator for students */}
+        {user?.role === 'student' && (
+          <StudentParentIndicator userProfileId={user.profileId} />
+        )}
         <button onClick={() => setChangePasswordOpen(true)} className="nav-link mb-2">
           <KeyRound className="w-4 h-4" />
           Change password
@@ -254,6 +259,28 @@ export default function Layout() {
           </div>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+function StudentParentIndicator({ userProfileId }: { userProfileId: number }) {
+  const { data } = useQuery({
+    queryKey: ['myParent', userProfileId],
+    queryFn: async () => {
+      const res = await api.get('/records/parents/me');
+      return res.data.data as any;
+    },
+    enabled: !!userProfileId,
+  });
+
+  if (!data) return (
+    <div className="px-3 py-2 text-sm text-surface-500">No parent linked</div>
+  );
+
+  const name = `${data.parentFirstName || ''} ${data.parentLastName || ''}`.trim();
+  return (
+    <div className="px-3 py-2 text-sm text-surface-700">
+      Student is linked to <span className="font-medium">{name || 'guardian'}</span>
     </div>
   );
 }

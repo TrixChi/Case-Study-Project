@@ -18,6 +18,8 @@ export default function PaymentPage() {
   const [showModal, setShowModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [form, setForm] = useState({ studentID: '', amount: '', receiptNo: '' });
+  const [paymentType, setPaymentType] = useState<'full' | 'partial'>('partial');
+  const [subjectId, setSubjectId] = useState<string>('all');
 
   const { data: payments = [], isLoading } = useQuery({
     queryKey: ['payment'],
@@ -36,8 +38,43 @@ export default function PaymentPage() {
     enabled: isAdmin,
   });
 
+  const selectedStudentId = Number(form.studentID) || null;
+  const { data: studentFeeSummary } = useQuery({
+    queryKey: ['studentFeeSummary', selectedStudentId],
+    queryFn: async () => {
+      if (!selectedStudentId) return { payments: [], balance: 0 } as any;
+      const res = await api.get(`/payment/summary?studentID=${selectedStudentId}`);
+      return res.data.data as any;
+    },
+    enabled: !!selectedStudentId,
+  });
+
+  const studentEnrollments = studentFeeSummary?.subjects || [];
+  const totalFees = Number(studentFeeSummary?.totalFees || 0);
+  const outstanding = Number(studentFeeSummary?.missingFees || 0);
+  const selectedSubject = studentEnrollments.find((subject: any) => String(subject.subjectID) === subjectId);
+
+  const { data: studentPaymentsData } = useQuery({
+    queryKey: ['studentPayments', selectedStudentId],
+    queryFn: async () => {
+      if (!selectedStudentId) return { payments: [], balance: 0 } as any;
+      if (isAdmin) {
+        const res = await api.get(`/payment/student/${selectedStudentId}`);
+        return res.data.data as { payments: any[]; balance: number };
+      }
+      const res = await api.get('/payment');
+      const payments = (res.data.data as any[]).filter(p => p.studentID === selectedStudentId);
+      const balance = payments && payments.length > 0 ? payments[0].balance : 0;
+      return { payments, balance };
+    },
+    enabled: !!selectedStudentId,
+  });
+
+  const legacyOutstanding = (studentPaymentsData?.balance ?? 0);
+  const displayOutstanding = selectedStudentId ? outstanding || legacyOutstanding : 0;
+
   const createMutation = useMutation({
-    mutationFn: (data: { studentID: number; amount: number; receiptNo?: string }) =>
+    mutationFn: (data: { studentID: number; amount: number; receiptNo?: string; subjectID?: number }) =>
       api.post('/payment', data),
     onSuccess: () => {
       toast.success('Payment recorded');
@@ -160,7 +197,11 @@ export default function PaymentPage() {
             <label className="label">Student *</label>
             <select
               value={form.studentID}
-              onChange={e => setForm(f => ({ ...f, studentID: e.target.value }))}
+              onChange={e => {
+                setForm(f => ({ ...f, studentID: e.target.value }));
+                setSubjectId('all');
+                setPaymentType('partial');
+              }}
               className="input"
             >
               <option value="">Select student…</option>
@@ -170,7 +211,41 @@ export default function PaymentPage() {
                 </option>
               ))}
             </select>
+            {selectedStudentId && (
+              <div className="text-sm text-surface-500 mt-2">
+                <div>Total subjects: {studentEnrollments.length} · Total fees: ₱{totalFees.toLocaleString()}</div>
+                <div className={`mt-1 ${displayOutstanding > 0 ? 'text-red-600' : 'text-emerald-700'}`}>Outstanding balance: ₱{Number(displayOutstanding).toLocaleString()}</div>
+              </div>
+            )}
           </div>
+
+          {selectedStudentId && (
+            <div>
+              <label className="label">Subject (apply payment to)</label>
+              <select value={subjectId} onChange={e => setSubjectId(e.target.value)} className="input">
+                <option value="all">All subjects (apply to total)</option>
+                {studentEnrollments.map((subject: any) => (
+                  <option key={subject.subjectID} value={String(subject.subjectID)}>
+                    {subject.subjectName} — ₱{Number(subject.fee || 0).toLocaleString()} · Balance ₱{Number(subject.balance || 0).toLocaleString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {selectedStudentId && (
+            <div>
+              <label className="label">Payment Type</label>
+              <div className="flex gap-3">
+                <label className={`btn ${paymentType === 'full' ? 'btn-primary' : 'btn-secondary'}`}>
+                  <input type="radio" name="paymentType" className="hidden" checked={paymentType === 'full'} onChange={() => setPaymentType('full')} /> Full
+                </label>
+                <label className={`btn ${paymentType === 'partial' ? 'btn-primary' : 'btn-secondary'}`}>
+                  <input type="radio" name="paymentType" className="hidden" checked={paymentType === 'partial'} onChange={() => setPaymentType('partial')} /> Partial
+                </label>
+              </div>
+            </div>
+          )}
           <div>
             <label className="label">Amount (₱) *</label>
             <input
@@ -181,7 +256,11 @@ export default function PaymentPage() {
               value={form.amount}
               onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
               className="input"
+              disabled={paymentType === 'full'}
             />
+            {paymentType === 'full' && (
+              <p className="text-sm text-surface-500 mt-1">Full payment amount will be {subjectId === 'all' ? `₱${totalFees.toLocaleString()}` : `₱${Number(selectedSubject?.balance ?? selectedSubject?.fee ?? 0).toLocaleString()}`}</p>
+            )}
           </div>
           <div>
             <label className="label">Receipt No. (optional)</label>
@@ -198,10 +277,11 @@ export default function PaymentPage() {
             <button
               onClick={() => createMutation.mutate({
                 studentID: Number(form.studentID),
-                amount: Number(form.amount),
+                amount: Number(paymentType === 'full' ? (subjectId === 'all' ? totalFees : Number(selectedSubject?.balance ?? selectedSubject?.fee ?? 0)) : Number(form.amount)),
                 receiptNo: form.receiptNo || undefined,
+                subjectID: subjectId !== 'all' ? Number(subjectId) : undefined,
               })}
-              disabled={!form.studentID || !form.amount || createMutation.isPending}
+              disabled={!form.studentID || (!form.amount && paymentType === 'partial') || createMutation.isPending}
               className="btn-primary"
             >
               {createMutation.isPending ? 'Recording…' : 'Record Payment'}

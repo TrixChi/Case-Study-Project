@@ -126,4 +126,53 @@ router.delete('/:id', authorize('admin'), async (req: AuthRequest, res: Response
   }
 });
 
+// POST /api/payment/charge - admin assigns a charge to a student based on subject fee
+router.post('/charge', authorize('admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { studentID, subjectID } = req.body;
+    if (!studentID || !subjectID) return res.status(400).json({ success: false, error: 'studentID and subjectID required' });
+
+    // fetch subject fee
+    const { data: subject, error: subjectErr } = await supabase
+      .from('subject')
+      .select('fee, subjectName')
+      .eq('subjectID', subjectID)
+      .single();
+    if (subjectErr) throw subjectErr;
+
+    const fee = Number(subject?.fee || 0);
+
+    // get current balance
+    const { data: lastPayment } = await supabase
+      .from('payment')
+      .select('balance')
+      .eq('studentID', studentID)
+      .order('paymentDate', { ascending: false })
+      .limit(1)
+      .single();
+    const currentBalance = lastPayment ? Number(lastPayment.balance) : 0;
+    const newBalance = currentBalance + fee;
+
+    const receiptNo = `CHR-${Date.now()}`;
+
+    const { data, error } = await supabase
+      .from('payment')
+      .insert({
+        studentID,
+        amount: 0,
+        paymentDate: new Date().toISOString(),
+        receiptNo,
+        balance: newBalance,
+      })
+      .select(`*, student(studentID, stuFirstName, stuLastName)`)
+      .single();
+
+    if (error) throw error;
+    return res.status(201).json({ success: true, data, message: `Charge assigned for ${subject.subjectName}` });
+  } catch (err) {
+    console.error('POST /api/payment/charge failed', err);
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
 export default router;

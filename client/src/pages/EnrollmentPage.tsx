@@ -18,7 +18,7 @@ export default function EnrollmentPage() {
 	const [filterStatus, setFilterStatus] = useState('all');
 	const [showModal, setShowModal] = useState(false);
 	const [deleteTarget, setDeleteTarget] = useState<Enrollment | null>(null);
-	const [form, setForm] = useState({ studentID: '', subjectID: '' });
+	const [form, setForm] = useState({ studentID: '', subjectIDs: [] as number[] });
 
 	const { data: enrollments = [], isLoading } = useQuery({
 		queryKey: ['enrollment'],
@@ -46,13 +46,21 @@ export default function EnrollmentPage() {
 		enabled: isAdmin,
 	});
 
+	const selectedSubjectCount = form.subjectIDs.length;
+	const selectedSubjectTotalUnits = subjects
+		.filter(subject => form.subjectIDs.includes(subject.subjectID))
+		.reduce((sum, subject) => sum + Number(subject.units || 0), 0);
+	const selectedSubjectTotalFee = subjects
+		.filter(subject => form.subjectIDs.includes(subject.subjectID))
+		.reduce((sum, subject) => sum + Number(subject.fee || 0), 0);
+
 	const createMutation = useMutation({
-		mutationFn: (data: typeof form) => api.post('/enrollment', { studentID: Number(data.studentID), subjectID: Number(data.subjectID) }),
+		mutationFn: (data: typeof form) => api.post('/enrollment', { studentID: Number(data.studentID), subjectIDs: data.subjectIDs }),
 		onSuccess: () => {
 			toast.success('Enrollment created');
 			qc.invalidateQueries({ queryKey: ['enrollment'] });
 			setShowModal(false);
-			setForm({ studentID: '', subjectID: '' });
+			setForm({ studentID: '', subjectIDs: [] });
 		},
 		onError: (err: { response?: { data?: { error?: string } } }) => {
 			toast.error(err.response?.data?.error || 'Failed to create enrollment');
@@ -230,25 +238,44 @@ export default function EnrollmentPage() {
 						</select>
 					</div>
 					<div>
-						<label className="label">Subject *</label>
-						<select
-							value={form.subjectID}
-							onChange={e => setForm(f => ({ ...f, subjectID: e.target.value }))}
-							className="input"
-						>
-							<option value="">Select subject…</option>
-							{subjects.map(s => (
-								<option key={s.subjectID} value={s.subjectID}>
-									{s.subjectName} ({s.units} units)
-								</option>
-							))}
-						</select>
+						<div className="flex items-center justify-between gap-3">
+							<label className="label mb-0">Subjects *</label>
+							<p className="text-xs text-surface-500">
+								{selectedSubjectCount} selected · {selectedSubjectTotalUnits} units · ₱{selectedSubjectTotalFee.toLocaleString()}
+							</p>
+						</div>
+						<div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto rounded-xl border border-surface-200 p-3 bg-surface-50">
+							{subjects.map(subject => {
+								const checked = form.subjectIDs.includes(subject.subjectID);
+								return (
+									<label key={subject.subjectID} className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${checked ? 'border-brand-400 bg-brand-50' : 'border-surface-200 bg-white hover:border-surface-300'}`}>
+										<input
+											type="checkbox"
+											checked={checked}
+											onChange={() => {
+												setForm(f => ({
+													...f,
+													subjectIDs: checked
+														? f.subjectIDs.filter(id => id !== subject.subjectID)
+														: [...f.subjectIDs, subject.subjectID],
+												}));
+											}}
+											className="mt-1"
+										/>
+										<div>
+											<p className="font-medium text-surface-800">{subject.subjectName}</p>
+											<p className="text-xs text-surface-500">{subject.units} units · ₱{Number(subject.fee || 0).toLocaleString()}</p>
+										</div>
+									</label>
+								);
+							})}
+						</div>
 					</div>
 					<div className="flex justify-end gap-3 pt-2">
 						<button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
 						<button
 							onClick={() => createMutation.mutate(form)}
-							disabled={!form.studentID || !form.subjectID || createMutation.isPending}
+							disabled={!form.studentID || form.subjectIDs.length === 0 || createMutation.isPending}
 							className="btn-primary"
 						>
 							{createMutation.isPending ? 'Creating…' : 'Create Enrollment'}
