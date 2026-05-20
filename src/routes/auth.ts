@@ -36,7 +36,7 @@ async function findUserByEmail(email: string) {
       .single();
 
     if (data) {
-      return { config, record: data as Record<string, unknown> };
+      return { config, record: data as unknown as Record<string, unknown> };
     }
 
     if (error && error.code !== 'PGRST116') {
@@ -57,7 +57,7 @@ async function updatePasswordByEmail(email: string, passwordHash: string) {
       .single();
 
     if (data) {
-      return { config, record: data as Record<string, unknown> };
+      return { config, record: data as unknown as Record<string, unknown> };
     }
 
     if (error && error.code !== 'PGRST116') {
