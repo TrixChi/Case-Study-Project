@@ -11,6 +11,9 @@ dotenv.config();
 
 const app = express();
 
+// Log app initialization to help diagnose cold-start issues
+console.log('[src/app] Express app initialized at', new Date().toISOString());
+
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? ['https://your-frontend-domain.com']

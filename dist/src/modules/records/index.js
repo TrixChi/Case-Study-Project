@@ -1,0 +1,870 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const express_1 = require("express");
+const supabase_js_1 = require("../../lib/supabase.js");
+const auth_js_1 = require("../../middleware/auth.js");
+const router = (0, express_1.Router)();
+router.use(auth_js_1.authenticate);
+const STUDENT_STATUSES = ['enrolled', 'graduate', 'unpaid', 'missing fees'];
+const RELATIONSHIP_STATUSES = ['pending', 'approved', 'rejected'];
+const PARENT_APPROVAL_STATUSES = ['pending', 'approved', 'rejected'];
+function isValidStudentStatus(status) {
+    return typeof status === 'string' && STUDENT_STATUSES.includes(status);
+}
+// --- STUDENTS ---
+router.get('/students', async (req, res) => {
+    try {
+        const { role, profileId } = req.user;
+        if (role === 'student') {
+            const { data, error } = await supabase_js_1.supabase
+                .from('student')
+                .select('*')
+                .eq('studentID', profileId)
+                .single();
+            if (error)
+                throw error;
+            return res.json({ success: true, data: [data] });
+        }
+        if (role === 'parent') {
+            const { data, error } = await supabase_js_1.supabase
+                .from('student')
+                .select('*')
+                .eq('parentID', profileId);
+            if (error)
+                throw error;
+            return res.json({ success: true, data });
+        }
+        const { data, error } = await supabase_js_1.supabase
+            .from('student')
+            .select('*')
+            .order('stuLastName');
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        console.error('GET /records/students failed', err);
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.post('/students', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { email, password, stuFirstName, stuMiddleName, stuLastName, stuContactInfo, address, status, parentID, } = req.body;
+        if (!email || !stuFirstName || !stuLastName || !stuContactInfo || !address) {
+            return res.status(400).json({ success: false, error: 'email, stuFirstName, stuLastName, stuContactInfo, and address are required' });
+        }
+        if (status && !isValidStudentStatus(status)) {
+            return res.status(400).json({ success: false, error: 'Invalid status' });
+        }
+        const passwordHash = await bcryptjs_1.default.hash(String(password || '').trim() || 'ABClearning2026', 12);
+        const { data, error } = await supabase_js_1.supabase
+            .from('student')
+            .insert({
+            email: email.toLowerCase(),
+            encrypted_password: passwordHash,
+            stuFirstName,
+            stuMiddleName: stuMiddleName || null,
+            stuLastName,
+            stuContactInfo,
+            address,
+            status: status || 'enrolled',
+            parentID: parentID || null,
+        })
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.status(201).json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.patch('/students/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        if (req.body.status && !isValidStudentStatus(req.body.status)) {
+            return res.status(400).json({ success: false, error: 'Invalid status' });
+        }
+        const updates = {
+            email: req.body.email?.toLowerCase(),
+            stuFirstName: req.body.stuFirstName,
+            stuMiddleName: req.body.stuMiddleName || null,
+            stuLastName: req.body.stuLastName,
+            stuContactInfo: req.body.stuContactInfo,
+            address: req.body.address,
+            status: req.body.status,
+            parentID: req.body.parentID ?? null,
+        };
+        if (req.body.password) {
+            updates.encrypted_password = await bcryptjs_1.default.hash(req.body.password, 12);
+        }
+        Object.keys(updates).forEach((key) => {
+            if (updates[key] === undefined) {
+                delete updates[key];
+            }
+        });
+        const { data, error } = await supabase_js_1.supabase
+            .from('student')
+            .update(updates)
+            .eq('studentID', req.params.id)
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.delete('/students/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { error } = await supabase_js_1.supabase.from('student').delete().eq('studentID', req.params.id);
+        if (error)
+            throw error;
+        return res.json({ success: true, message: 'Student deleted' });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// --- SUBJECTS ---
+router.get('/subjects', async (_req, res) => {
+    try {
+        const { data, error } = await supabase_js_1.supabase
+            .from('subject')
+            .select('*, tutor(tutorFirstName, tutorLastName, specialization)')
+            .order('subjectName');
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+function isTwoDecimalFee(value) {
+    return typeof value === 'string' && /^\d+(?:\.\d{2})$/.test(value.trim());
+}
+function isValidRelationshipStatus(value) {
+    return typeof value === 'string' && RELATIONSHIP_STATUSES.includes(value);
+}
+function isValidParentApprovalStatus(value) {
+    return typeof value === 'string' && PARENT_APPROVAL_STATUSES.includes(value);
+}
+function sortParentsByApproval(parents) {
+    const priority = {
+        pending: 0,
+        approved: 1,
+        rejected: 2,
+    };
+    return [...parents].sort((left, right) => {
+        const leftPriority = priority[left.approved || 'pending'] ?? 99;
+        const rightPriority = priority[right.approved || 'pending'] ?? 99;
+        if (leftPriority !== rightPriority) {
+            return leftPriority - rightPriority;
+        }
+        return String(left.parentLastName || '').localeCompare(String(right.parentLastName || ''));
+    });
+}
+router.post('/subjects', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { subjectName, units, description, tutorID, fee } = req.body;
+        if (!subjectName || units === undefined || fee === undefined) {
+            return res.status(400).json({ success: false, error: 'subjectName, units, and fee are required' });
+        }
+        if (!isTwoDecimalFee(String(fee))) {
+            return res.status(400).json({ success: false, error: 'fee must have exactly 2 decimal places' });
+        }
+        const { data, error } = await supabase_js_1.supabase
+            .from('subject')
+            .insert({
+            subjectName,
+            units: Number(units),
+            description: description || null,
+            tutorID: tutorID ? Number(tutorID) : null,
+            fee: Number(fee),
+        })
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.status(201).json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.patch('/subjects/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        if (req.body.fee !== undefined && !isTwoDecimalFee(String(req.body.fee))) {
+            return res.status(400).json({ success: false, error: 'fee must have exactly 2 decimal places' });
+        }
+        const updates = { ...req.body };
+        if (updates.units !== undefined)
+            updates.units = Number(updates.units);
+        if (updates.tutorID !== undefined)
+            updates.tutorID = updates.tutorID ? Number(updates.tutorID) : null;
+        if (updates.fee !== undefined)
+            updates.fee = Number(updates.fee);
+        const { data, error } = await supabase_js_1.supabase
+            .from('subject')
+            .update(updates)
+            .eq('subjectID', req.params.id)
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.delete('/subjects/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { error } = await supabase_js_1.supabase.from('subject').delete().eq('subjectID', req.params.id);
+        if (error)
+            throw error;
+        return res.json({ success: true, message: 'Subject deleted' });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// --- GRADES ---
+router.get('/grades', async (req, res) => {
+    try {
+        const { role, profileId } = req.user;
+        let query = supabase_js_1.supabase
+            .from('grade')
+            .select(`*, student(stuFirstName, stuLastName), subject(subjectName, units), tutor(tutorFirstName, tutorLastName)`)
+            .order('gradeID', { ascending: false });
+        if (role === 'student') {
+            query = query.eq('studentID', profileId);
+        }
+        else if (role === 'parent') {
+            const { data: students } = await supabase_js_1.supabase
+                .from('student').select('studentID').eq('parentID', profileId);
+            const ids = (students || []).map((s) => s.studentID);
+            query = query.in('studentID', ids.length > 0 ? ids : [0]);
+        }
+        else if (role === 'tutor') {
+            query = query.eq('tutorID', profileId);
+        }
+        const { data, error } = await query;
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.post('/grades', (0, auth_js_1.authorize)('admin', 'tutor'), async (req, res) => {
+    try {
+        const { studentID, subjectID, gradeValue } = req.body;
+        const tutorID = req.user.role === 'tutor' ? req.user.profileId : req.body.tutorID;
+        const standing = gradeValue >= 75 ? 'Passed' : 'Failed';
+        const { data, error } = await supabase_js_1.supabase
+            .from('grade')
+            .insert({ studentID, subjectID, tutorID, gradeValue: Number(gradeValue), academicStanding: standing, released: true })
+            .select(`*, student(stuFirstName, stuLastName), subject(subjectName), tutor(tutorFirstName, tutorLastName)`)
+            .single();
+        if (error)
+            throw error;
+        return res.status(201).json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.patch('/grades/:id', (0, auth_js_1.authorize)('admin', 'tutor'), async (req, res) => {
+    try {
+        const updates = { ...req.body };
+        if (updates.gradeValue) {
+            updates.academicStanding = Number(updates.gradeValue) >= 75 ? 'Passed' : 'Failed';
+        }
+        const { data, error } = await supabase_js_1.supabase
+            .from('grade')
+            .update(updates)
+            .eq('gradeID', req.params.id)
+            .select(`*, student(stuFirstName, stuLastName), subject(subjectName)`)
+            .single();
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// Admin can mark grade as released for viewing by parents/students
+router.patch('/grades/:id/release', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { released } = req.body;
+        const { data, error } = await supabase_js_1.supabase
+            .from('grade')
+            .update({ released: !!released })
+            .eq('gradeID', req.params.id)
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.json({ success: true, data, message: `Grade ${released ? 'released' : 'unreleased'}` });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.delete('/grades/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { error } = await supabase_js_1.supabase.from('grade').delete().eq('gradeID', req.params.id);
+        if (error)
+            throw error;
+        return res.json({ success: true, message: 'Grade deleted' });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// --- ATTENDANCE ---
+router.get('/attendance', async (req, res) => {
+    try {
+        const { role, profileId } = req.user;
+        let query = supabase_js_1.supabase
+            .from('attendance')
+            .select(`*, student(stuFirstName, stuLastName), tutor(tutorFirstName, tutorLastName)`)
+            .order('attendanceDate', { ascending: false });
+        if (role === 'student') {
+            query = query.eq('studentID', profileId);
+        }
+        else if (role === 'parent') {
+            const { data: students } = await supabase_js_1.supabase
+                .from('student').select('studentID').eq('parentID', profileId);
+            const ids = (students || []).map((s) => s.studentID);
+            query = query.in('studentID', ids.length > 0 ? ids : [0]);
+        }
+        else if (role === 'tutor') {
+            query = query.eq('tutorID', profileId);
+        }
+        const { data, error } = await query;
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.post('/attendance', (0, auth_js_1.authorize)('admin', 'tutor'), async (req, res) => {
+    try {
+        const { studentID, subjectID, status, attendanceDate } = req.body;
+        const tutorID = req.user.role === 'tutor' ? req.user.profileId : req.body.tutorID;
+        const { data, error } = await supabase_js_1.supabase
+            .from('attendance')
+            .insert({
+            studentID,
+            subjectID,
+            tutorID,
+            status: status || 'present',
+            attendanceDate: attendanceDate || new Date().toISOString(),
+            released: true,
+        })
+            .select(`*, student(stuFirstName, stuLastName)`)
+            .single();
+        if (error)
+            throw error;
+        return res.status(201).json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.patch('/attendance/:id', (0, auth_js_1.authorize)('admin', 'tutor'), async (req, res) => {
+    try {
+        const { data, error } = await supabase_js_1.supabase
+            .from('attendance')
+            .update(req.body)
+            .eq('attendanceID', req.params.id)
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// Admin can release attendance for viewing
+router.patch('/attendance/:id/release', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { released } = req.body;
+        const { data, error } = await supabase_js_1.supabase
+            .from('attendance')
+            .update({ released: !!released })
+            .eq('attendanceID', req.params.id)
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.json({ success: true, data, message: `Attendance ${released ? 'released' : 'unreleased'}` });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.delete('/attendance/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { error } = await supabase_js_1.supabase.from('attendance').delete().eq('attendanceID', req.params.id);
+        if (error)
+            throw error;
+        return res.json({ success: true, message: 'Attendance record deleted' });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// --- TUTORS ---
+router.get('/tutors', async (_req, res) => {
+    try {
+        const { data, error } = await supabase_js_1.supabase.from('tutor').select('*').order('tutorLastName');
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.post('/tutors', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { email, password, tutorFirstName, tutorLastName, specialization, status } = req.body;
+        if (!email || !tutorFirstName || !tutorLastName || !specialization) {
+            return res.status(400).json({ success: false, error: 'email, tutorFirstName, tutorLastName, and specialization are required' });
+        }
+        if (status && !['active', 'on leave', 'dismissed'].includes(status)) {
+            return res.status(400).json({ success: false, error: 'Invalid tutor status' });
+        }
+        const passwordHash = await bcryptjs_1.default.hash(String(password || '').trim() || 'ABClearning2026', 12);
+        const { data, error } = await supabase_js_1.supabase
+            .from('tutor')
+            .insert({
+            email: email.toLowerCase(),
+            encrypted_password: passwordHash,
+            tutorFirstName,
+            tutorLastName,
+            specialization,
+            status: status || 'active',
+        })
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.status(201).json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.patch('/tutors/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { status, tutorFirstName, tutorLastName, specialization, email } = req.body;
+        if (status && !['active', 'on leave', 'dismissed'].includes(status)) {
+            return res.status(400).json({ success: false, error: 'Invalid tutor status' });
+        }
+        const updates = {};
+        if (status !== undefined)
+            updates.status = status;
+        if (tutorFirstName !== undefined)
+            updates.tutorFirstName = tutorFirstName;
+        if (tutorLastName !== undefined)
+            updates.tutorLastName = tutorLastName;
+        if (specialization !== undefined)
+            updates.specialization = specialization;
+        if (email !== undefined)
+            updates.email = String(email).toLowerCase();
+        const { data, error } = await supabase_js_1.supabase
+            .from('tutor')
+            .update(updates)
+            .eq('tutorID', req.params.id)
+            .select()
+            .single();
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.delete('/tutors/:id', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { data: tutor, error: fetchError } = await supabase_js_1.supabase
+            .from('tutor')
+            .select('status')
+            .eq('tutorID', req.params.id)
+            .maybeSingle();
+        if (fetchError)
+            throw fetchError;
+        if (!tutor) {
+            return res.status(404).json({ success: false, error: 'Tutor not found' });
+        }
+        if (tutor.status !== 'dismissed') {
+            return res.status(400).json({ success: false, error: 'Only dismissed tutors can be deleted' });
+        }
+        const { error } = await supabase_js_1.supabase.from('tutor').delete().eq('tutorID', req.params.id);
+        if (error)
+            throw error;
+        return res.json({ success: true, message: 'Tutor deleted' });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// --- PARENTS ---
+router.get('/parents', (0, auth_js_1.authorize)('admin'), async (_req, res) => {
+    try {
+        const { data, error } = await supabase_js_1.supabase
+            .from('parent')
+            .select('*')
+            .order('parentLastName');
+        if (error)
+            throw error;
+        return res.json({ success: true, data: sortParentsByApproval(data || []) });
+    }
+    catch (err) {
+        console.error('GET /records/parents failed', err);
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.get('/parents/me', async (req, res) => {
+    try {
+        const { role, profileId } = req.user;
+        if (role !== 'student' && role !== 'parent' && role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Not allowed' });
+        }
+        if (role === 'student') {
+            const { data, error } = await supabase_js_1.supabase
+                .from('parent')
+                .select('*')
+                .eq('studentID', profileId)
+                .single();
+            if (error && error.code !== 'PGRST116')
+                throw error;
+            return res.json({ success: true, data: data || null });
+        }
+        if (role === 'parent') {
+            const { data, error } = await supabase_js_1.supabase
+                .from('parent')
+                .select('*')
+                .eq('parentID', profileId)
+                .single();
+            if (error && error.code !== 'PGRST116')
+                throw error;
+            return res.json({ success: true, data: data || null });
+        }
+        const { data, error } = await supabase_js_1.supabase
+            .from('parent')
+            .select('*')
+            .order('parentLastName');
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        console.error('GET /records/parents/me failed', err);
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.get('/parents/lookup', async (req, res) => {
+    try {
+        const email = String(req.query.email || '').toLowerCase().trim();
+        if (!email) {
+            return res.status(400).json({ success: false, error: 'Email is required' });
+        }
+        const { data, error } = await supabase_js_1.supabase
+            .from('parent')
+            .select('*')
+            .eq('email', email)
+            .single();
+        if (error && error.code !== 'PGRST116')
+            throw error;
+        return res.json({ success: true, data: data || null });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// GET /records/parents/:id/students - admin can view students linked to a parent
+router.get('/parents/:id/students', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const parentId = Number(req.params.id);
+        const { data, error } = await supabase_js_1.supabase
+            .from('student')
+            .select('studentID, stuFirstName, stuLastName, status')
+            .eq('parentID', parentId)
+            .order('stuLastName');
+        if (error)
+            throw error;
+        return res.json({ success: true, data });
+    }
+    catch (err) {
+        console.error('GET /records/parents/:id/students failed', err);
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+// GET /records/parents/me/dashboard - parent dashboard aggregates
+router.get('/parents/me/dashboard', async (req, res) => {
+    try {
+        const { role, profileId } = req.user;
+        if (role !== 'parent')
+            return res.status(403).json({ success: false, error: 'Not allowed' });
+        // fetch students linked to this parent
+        const { data: students = [], error: studentsError } = await supabase_js_1.supabase
+            .from('student')
+            .select('studentID, stuFirstName, stuLastName')
+            .eq('parentID', profileId);
+        if (studentsError)
+            throw studentsError;
+        // for each student compute avg grade, attendance rate, latest balance, enrollment count
+        const perStudent = await Promise.all((students || []).map(async (s) => {
+            const studentID = s.studentID;
+            // grades
+            const { data: grades = [], error: gradesError } = await supabase_js_1.supabase
+                .from('grade')
+                .select('gradeValue')
+                .eq('studentID', studentID);
+            if (gradesError)
+                throw gradesError;
+            const gradeList = grades || [];
+            const avgGrade = gradeList.length ? gradeList.reduce((a, g) => a + Number(g.gradeValue), 0) / gradeList.length : null;
+            // attendance
+            const { data: attendance = [], error: attendanceError } = await supabase_js_1.supabase
+                .from('attendance')
+                .select('status')
+                .eq('studentID', studentID);
+            if (attendanceError)
+                throw attendanceError;
+            const attendanceList = attendance || [];
+            const totalAttend = attendanceList.length;
+            const presentCount = attendanceList.filter((a) => String(a.status).toLowerCase() === 'present').length;
+            const attendanceRate = totalAttend ? (presentCount / totalAttend) * 100 : null;
+            // latest payment balance
+            const { data: lastPayment } = await supabase_js_1.supabase
+                .from('payment')
+                .select('balance')
+                .eq('studentID', studentID)
+                .order('paymentDate', { ascending: false })
+                .limit(1)
+                .single();
+            const balance = lastPayment ? Number(lastPayment.balance) : 0;
+            // enrollments count (approved)
+            const { data: enrollments = [], error: enrollError } = await supabase_js_1.supabase
+                .from('enrollment')
+                .select('enrollmentID')
+                .eq('studentID', studentID)
+                .eq('status', 'approved');
+            if (enrollError)
+                throw enrollError;
+            const enrollmentCount = (enrollments || []).length || 0;
+            return {
+                studentID,
+                stuFirstName: s.stuFirstName,
+                stuLastName: s.stuLastName,
+                avgGrade: avgGrade === null ? null : Number(avgGrade.toFixed(2)),
+                attendanceRate: attendanceRate === null ? null : Number(attendanceRate.toFixed(2)),
+                balance,
+                enrollmentCount,
+            };
+        }));
+        const totalPendingBalance = perStudent.reduce((sum, p) => sum + Number(p.balance || 0), 0);
+        const totalEnrollments = perStudent.reduce((sum, p) => sum + Number(p.enrollmentCount || 0), 0);
+        return res.json({ success: true, data: { students: perStudent, totals: { totalPendingBalance, totalEnrollments } } });
+    }
+    catch (err) {
+        console.error('GET /records/parents/me/dashboard failed', err);
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.post('/parents', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { email, password, parentFirstName, parentMiddleName, parentLastName, contactInfo, relationship, studentID } = req.body;
+        if (!email || !parentFirstName || !parentLastName || !contactInfo || !relationship) {
+            return res.status(400).json({ success: false, error: 'email, parentFirstName, parentLastName, contactInfo, and relationship are required' });
+        }
+        if (studentID) {
+            const { data: student, error: studentError } = await supabase_js_1.supabase
+                .from('student')
+                .select('studentID, parentID')
+                .eq('studentID', Number(studentID))
+                .single();
+            if (studentError)
+                throw studentError;
+            if (student?.parentID) {
+                return res.status(409).json({ success: false, error: 'This student already has a parent linked' });
+            }
+        }
+        const normalizedEmail = String(email).toLowerCase().trim();
+        const passwordHash = await bcryptjs_1.default.hash(String(password || '').trim() || 'ABClearning2026', 12);
+        const { data, error } = await supabase_js_1.supabase
+            .from('parent')
+            .insert({
+            email: normalizedEmail,
+            encrypted_password: passwordHash,
+            parentFirstName,
+            parentMiddleName: parentMiddleName || null,
+            parentLastName,
+            contactInfo,
+            relationshipStatus: relationship,
+            studentID: studentID ? Number(studentID) : null,
+            approved: 'approved',
+        })
+            .select('*')
+            .single();
+        if (error)
+            throw error;
+        // If this parent is linked to a student, update that student's parentID
+        if (data && studentID) {
+            const { error: studentUpdateError } = await supabase_js_1.supabase
+                .from('student')
+                .update({ parentID: Number(data.parentID) })
+                .eq('studentID', Number(studentID));
+            if (studentUpdateError)
+                throw studentUpdateError;
+        }
+        return res.status(201).json({ success: true, data, message: 'Parent request submitted' });
+    }
+    catch (err) {
+        console.error('POST /records/parents failed', err);
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.post('/parents/me', (0, auth_js_1.authorize)('student'), async (req, res) => {
+    try {
+        const { email, password, parentFirstName, parentMiddleName, parentLastName, contactInfo, relationship } = req.body;
+        const studentID = req.user.profileId;
+        const { data: student, error: studentError } = await supabase_js_1.supabase
+            .from('student')
+            .select('studentID, parentID')
+            .eq('studentID', studentID)
+            .single();
+        if (studentError)
+            throw studentError;
+        if (student?.parentID) {
+            return res.status(409).json({ success: false, error: 'This student already has a parent linked' });
+        }
+        const normalizedEmail = String(email).toLowerCase().trim();
+        const { data: existingParent, error: parentLookupError } = await supabase_js_1.supabase
+            .from('parent')
+            .select('parentID, studentID')
+            .eq('email', normalizedEmail)
+            .single();
+        if (parentLookupError && parentLookupError.code !== 'PGRST116')
+            throw parentLookupError;
+        if (existingParent?.studentID && existingParent.studentID !== studentID) {
+            return res.status(409).json({ success: false, error: 'That parent account is already linked to another student' });
+        }
+        if (!existingParent && (!email || !parentFirstName || !parentLastName || !contactInfo || !relationship)) {
+            return res.status(400).json({ success: false, error: 'email, parentFirstName, parentLastName, contactInfo, and relationship are required when creating a new account' });
+        }
+        const resolvedPassword = String(password || '').trim() || 'ABClearning2026';
+        const payload = {
+            email: normalizedEmail,
+            relationshipStatus: relationship,
+            studentID,
+            approved: 'approved',
+        };
+        if (parentFirstName)
+            payload.parentFirstName = parentFirstName;
+        if (parentMiddleName !== undefined)
+            payload.parentMiddleName = parentMiddleName || null;
+        if (parentLastName)
+            payload.parentLastName = parentLastName;
+        if (contactInfo)
+            payload.contactInfo = contactInfo;
+        if (!existingParent) {
+            payload.encrypted_password = await bcryptjs_1.default.hash(resolvedPassword, 12);
+        }
+        const { data, error } = existingParent
+            ? await supabase_js_1.supabase
+                .from('parent')
+                .update(payload)
+                .eq('parentID', existingParent.parentID)
+                .select('*')
+                .single()
+            : await supabase_js_1.supabase
+                .from('parent')
+                .insert({
+                ...payload,
+                encrypted_password: payload.encrypted_password,
+            })
+                .select('*')
+                .single();
+        if (error)
+            throw error;
+        // Ensure the student's parentID is set when a parent is created/updated
+        if (data && data.parentID && studentID) {
+            const { error: studentUpdateError } = await supabase_js_1.supabase
+                .from('student')
+                .update({ parentID: Number(data.parentID) })
+                .eq('studentID', Number(studentID));
+            if (studentUpdateError)
+                throw studentUpdateError;
+        }
+        return res.status(existingParent ? 200 : 201).json({ success: true, data, message: 'Parent request submitted' });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+router.patch('/parents/:id/validate', (0, auth_js_1.authorize)('admin'), async (req, res) => {
+    try {
+        const { status } = req.body;
+        if (!isValidParentApprovalStatus(status) || status === 'pending') {
+            return res.status(400).json({ success: false, error: 'Invalid validation status' });
+        }
+        const { data: parent, error: parentError } = await supabase_js_1.supabase
+            .from('parent')
+            .select('parentID, studentID')
+            .eq('parentID', req.params.id)
+            .single();
+        if (parentError)
+            throw parentError;
+        const { error: updateError } = await supabase_js_1.supabase
+            .from('parent')
+            .update({
+            approved: status,
+        })
+            .eq('parentID', req.params.id);
+        if (updateError)
+            throw updateError;
+        if (status === 'approved' && parent?.studentID) {
+            const { error: studentError } = await supabase_js_1.supabase
+                .from('student')
+                .update({ parentID: Number(parent.parentID) })
+                .eq('studentID', Number(parent.studentID));
+            if (studentError)
+                throw studentError;
+        }
+        if (status === 'rejected' && parent?.studentID) {
+            const { error: studentError } = await supabase_js_1.supabase
+                .from('student')
+                .update({ parentID: null })
+                .eq('studentID', Number(parent.studentID));
+            if (studentError)
+                throw studentError;
+        }
+        return res.json({ success: true, message: `Relationship ${status}` });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Server error' });
+    }
+});
+exports.default = router;
+//# sourceMappingURL=index.js.map
