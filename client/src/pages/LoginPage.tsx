@@ -51,8 +51,9 @@ export default function LoginPage() {
       if (isAxiosError(err)) {
         if (err.response) {
           const code = err.response.status;
-          const serverMsg = err.response.data?.error || err.response.statusText;
-          return `Login failed (${code}): ${serverMsg || 'Server error'}`;
+          const serverMsg = err.response.data?.error ?? err.response.statusText;
+          const serverMsgText = typeof serverMsg === 'string' ? serverMsg : JSON.stringify(serverMsg);
+          return `Login failed (${code}): ${serverMsgText || 'Server error'}`;
         }
         if (err.request) {
           return 'Network error: unable to reach the server';
