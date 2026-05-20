@@ -1,6 +1,7 @@
 {
   "name": "abc-learning-center-backend",
   "version": "1.0.0",
+  "private": true,
   "description": "ABC Learning Center Backend API",
   "main": "dist/index.js",
   "scripts": {
