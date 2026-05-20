@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BookOpen, Eye, EyeOff, AlertCircle, KeyRound } from 'lucide-react';
 import api from '../lib/api';
+import { isAxiosError } from 'axios';
 import { useAuthStore } from '../store/authStore';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
@@ -38,12 +39,31 @@ export default function LoginPage() {
       toast.success(`Welcome back, ${user.firstName || user.first_name}!`);
       navigate('/dashboard');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Login failed';
-      setError(msg);
+      const message = extractErrorMessage(err);
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
+
+  function extractErrorMessage(err: unknown) {
+    try {
+      if (isAxiosError(err)) {
+        if (err.response) {
+          const code = err.response.status;
+          const serverMsg = err.response.data?.error || err.response.statusText;
+          return `Login failed (${code}): ${serverMsg || 'Server error'}`;
+        }
+        if (err.request) {
+          return 'Network error: unable to reach the server';
+        }
+        return `Request error: ${err.message}`;
+      }
+      return String(err ?? 'Login failed');
+    } catch (e) {
+      return 'Login failed';
+    }
+  }
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
