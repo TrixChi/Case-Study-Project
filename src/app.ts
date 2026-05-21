@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 
 import authRoutes from './routes/auth.js';
 import enrollmentRoutes from './modules/enrollment/index.js';
+import enlistmentRoutes from './routes/enlistment.js';
 import paymentRoutes from './modules/payment/index.js';
 import recordsRoutes from './modules/records/index.js';
 
@@ -32,6 +33,7 @@ app.get('/health', (_req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/enrollment', enrollmentRoutes);
+app.use('/api/enlistment', enlistmentRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/records', recordsRoutes);
 

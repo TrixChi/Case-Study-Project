@@ -125,6 +125,18 @@ export interface Transcript {
   student?: Student;
 }
 
+export interface Enlistment {
+  enlistmentID: number;
+  studentID: number;
+  subjectID: number;
+  enlistmentDate: string;
+  status: 'pending' | 'approved' | 'rejected';
+  validatedBy?: number;
+  validatedAt?: string;
+  student?: Student;
+  subject?: Subject;
+}
+
 export interface AuthPayload {
   userId: string;
   email: string;

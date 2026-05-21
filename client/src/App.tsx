@@ -10,6 +10,7 @@ import SubjectsPage from './pages/SubjectsPage';
 import GradesPage from './pages/GradesPage';
 import AttendancePage from './pages/AttendancePage';
 import ParentModulePage from './pages/ParentModulePage';
+import EnlistmentPage from './pages/EnlistmentPage';
 import { useAuthStore } from './store/authStore';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="records/subjects" element={<SubjectsPage />} />
         <Route path="records/grades" element={<GradesPage />} />
         <Route path="records/attendance" element={<AttendancePage />} />
+        <Route path="enlistment" element={<EnlistmentPage />} />
       </Route>
     </Routes>
   );

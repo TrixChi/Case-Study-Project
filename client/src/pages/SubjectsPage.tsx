@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, BookOpen, ClipboardList } from 'lucide-react';
+import { Plus, Search, BookOpen, Send } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { Subject, Tutor, Enrollment } from '../types';
+import { Subject, Tutor, Enlistment, Grade } from '../types';
 import Modal from '../components/Modal';
 import ConfirmModal from '../components/ConfirmModal';
 import ActionButtons from '../components/ActionButtons';
@@ -37,6 +37,7 @@ export default function SubjectsPage() {
   const [editing, setEditing] = useState<Subject | null>(null);
   const [form, setForm] = useState<SubjectForm>(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<Subject | null>(null);
+  const [selectedSubjects, setSelectedSubjects] = useState<Set<number>>(new Set());
 
   const { data: subjects = [], isLoading } = useQuery({
     queryKey: ['subjects'],
@@ -52,32 +53,48 @@ export default function SubjectsPage() {
       const res = await api.get('/records/tutors');
       return res.data.data as Tutor[];
     },
+    enabled: isAdmin,
   });
 
-  const tutorLookup = useMemo(() => new Map(tutors.map((t) => [t.tutorID, t])), [tutors]);
-
-  const { data: myEnrollments = [] } = useQuery({
-    queryKey: ['enrollment'],
+  const { data: myGrades = [] } = useQuery({
+    queryKey: ['grades'],
     queryFn: async () => {
-      const res = await api.get('/enrollment');
-      return res.data.data as Enrollment[];
+      const res = await api.get('/records/grades');
+      return res.data.data as Grade[];
     },
     enabled: isStudent,
   });
 
-  const enrollmentBySubject = useMemo(
-    () => new Map(myEnrollments.map((e) => [e.subjectID, e])),
-    [myEnrollments]
+  const passingSubjects = useMemo(
+    () => new Set(myGrades.filter((g) => g.academicStanding === 'Passed').map((g) => g.subjectID)),
+    [myGrades]
+  );
+
+  const tutorLookup = useMemo(() => new Map(tutors.map((t) => [t.tutorID, t])), [tutors]);
+
+  const { data: myEnlistments = [] } = useQuery({
+    queryKey: ['enlistment'],
+    queryFn: async () => {
+      const res = await api.get('/enlistment');
+      return res.data.data as Enlistment[];
+    },
+    enabled: isStudent,
+  });
+
+  const enlistmentBySubject = useMemo(
+    () => new Map(myEnlistments.map((e) => [e.subjectID, e])),
+    [myEnlistments]
   );
 
   const enlistMutation = useMutation({
-    mutationFn: (subjectID: number) => api.post('/enrollment', { subjectIDs: [subjectID] }),
-    onSuccess: () => {
-      toast.success('Enlistment submitted — awaiting approval');
-      qc.invalidateQueries({ queryKey: ['enrollment'] });
+    mutationFn: (subjectIDs: number[]) => api.post('/enlistment', { subjectIDs }),
+    onSuccess: (_data, subjectIDs) => {
+      toast.success(`${subjectIDs.length} enlistment${subjectIDs.length > 1 ? 's' : ''} submitted — awaiting approval`);
+      qc.invalidateQueries({ queryKey: ['enlistment'] });
+      setSelectedSubjects(new Set());
     },
     onError: (err: { response?: { data?: { error?: string } } }) => {
-      toast.error(err.response?.data?.error || 'Failed to enlist');
+      toast.error(err.response?.data?.error || 'Failed to submit enlistment');
     },
   });
 
@@ -212,7 +229,7 @@ export default function SubjectsPage() {
                   <th className="table-cell text-left">Description</th>
                   <th className="table-cell text-left">Tutor</th>
                   <th className="table-cell text-left">Fee</th>
-                  {isStudent && <th className="table-cell text-left">Status</th>}
+                  {isStudent && <th className="table-cell text-left">Enlist</th>}
                   {isAdmin && <th className="table-cell text-right">Actions</th>}
                 </tr>
               </thead>
@@ -228,26 +245,38 @@ export default function SubjectsPage() {
                       <td className="table-cell text-surface-500">{tutor ? `${tutor.tutorFirstName} ${tutor.tutorLastName}` : 'Unassigned'}</td>
                       <td className="table-cell text-surface-700 font-medium">{Number(subject.fee || 0).toFixed(2)}</td>
                       {isStudent && (() => {
-                        const enrollment = enrollmentBySubject.get(subject.subjectID);
-                        if (enrollment) {
+                        if (passingSubjects.has(subject.subjectID)) {
                           return (
                             <td className="table-cell">
-                              <span className={`badge ${ENROLLMENT_STATUS_BADGES[enrollment.status] || 'badge-gray'}`}>
-                                {enrollment.status}
+                              <span className="badge badge-green">Passed</span>
+                            </td>
+                          );
+                        }
+                        const enlistment = enlistmentBySubject.get(subject.subjectID);
+                        if (enlistment) {
+                          return (
+                            <td className="table-cell">
+                              <span className={`badge ${ENROLLMENT_STATUS_BADGES[enlistment.status] || 'badge-gray'}`}>
+                                {enlistment.status}
                               </span>
                             </td>
                           );
                         }
                         return (
                           <td className="table-cell">
-                            <button
-                              onClick={() => enlistMutation.mutate(subject.subjectID)}
-                              disabled={enlistMutation.isPending}
-                              className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
-                            >
-                              <ClipboardList className="w-3.5 h-3.5" />
-                              Enlist
-                            </button>
+                            <input
+                              type="checkbox"
+                              checked={selectedSubjects.has(subject.subjectID)}
+                              onChange={(e) => {
+                                setSelectedSubjects((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(subject.subjectID);
+                                  else next.delete(subject.subjectID);
+                                  return next;
+                                });
+                              }}
+                              className="w-4 h-4 accent-brand-600 cursor-pointer"
+                            />
                           </td>
                         );
                       })()}
@@ -364,6 +393,28 @@ export default function SubjectsPage() {
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.subjectID)}
       />
+
+      {isStudent && selectedSubjects.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-brand-700 text-white rounded-full shadow-xl px-6 py-3 flex items-center gap-4">
+          <span className="text-sm font-medium">
+            {selectedSubjects.size} subject{selectedSubjects.size > 1 ? 's' : ''} selected
+          </span>
+          <button
+            onClick={() => enlistMutation.mutate([...selectedSubjects])}
+            disabled={enlistMutation.isPending}
+            className="flex items-center gap-2 bg-white text-brand-700 rounded-full px-4 py-1.5 text-sm font-semibold hover:bg-brand-50 transition-colors disabled:opacity-60"
+          >
+            <Send className="w-3.5 h-3.5" />
+            {enlistMutation.isPending ? 'Submitting…' : 'Submit Enlistment'}
+          </button>
+          <button
+            onClick={() => setSelectedSubjects(new Set())}
+            className="text-white/70 hover:text-white text-sm"
+          >
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   );
 }

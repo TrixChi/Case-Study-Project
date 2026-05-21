@@ -99,40 +99,54 @@ export default function DashboardPage() {
     enabled: user?.role === 'admin',
   });
 
+  const selectedStudent: any = user?.role === 'parent' && selectedStudentId
+    ? parentDashboard?.students?.find((s: any) => s.studentID === selectedStudentId) ?? null
+    : null;
+
   const filteredEnrollments = user?.role === 'parent' && selectedStudentId
     ? enrollments?.filter(e => e.studentID === selectedStudentId)
     : enrollments;
 
-  const pendingEnrollments = filteredEnrollments?.filter(e => e.status === 'pending').length || 0;
-  const approvedEnrollments = filteredEnrollments?.filter(e => e.status === 'approved').length || 0;
+  const pendingEnrollments = user?.role === 'parent'
+    ? (selectedStudent ? filteredEnrollments?.filter(e => e.status === 'pending').length || 0 : 0)
+    : filteredEnrollments?.filter(e => e.status === 'pending').length || 0;
+
+  const approvedEnrollments = user?.role === 'parent'
+    ? (selectedStudent?.enrollmentCount ?? 0)
+    : filteredEnrollments?.filter(e => e.status === 'approved').length || 0;
 
   const filteredGrades = user?.role === 'parent' && selectedStudentId
     ? grades?.filter(g => g.studentID === selectedStudentId)
     : grades;
 
   const summaryTotals = feeSummary?.totals || feeSummary;
-  const totalPayments = summaryTotals?.totalPaid || payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-  const missingFees = summaryTotals?.missingFees || 0;
+  const totalPayments = user?.role === 'parent'
+    ? payments?.filter(p => (p as any).studentID === selectedStudentId).reduce((sum, p) => sum + Number(p.amount), 0) || 0
+    : summaryTotals?.totalPaid || payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+  const missingFees = user?.role === 'parent'
+    ? Number(selectedStudent?.balance ?? 0)
+    : summaryTotals?.missingFees || 0;
 
   const avgGrade = user?.role === 'parent'
-    ? (() => {
-        const p = parentDashboard?.students?.find((s: any) => s.studentID === selectedStudentId);
-        return p ? String(p.avgGrade ?? '—') : '—';
-      })()
+    ? (selectedStudent ? String(selectedStudent.avgGrade ?? '—') : '—')
     : filteredGrades && filteredGrades.length > 0
       ? (filteredGrades.reduce((sum, g) => sum + Number(g.gradeValue), 0) / filteredGrades.length).toFixed(1)
       : '—';
 
-  const presentCount = user?.role === 'parent'
-    ? (() => {
-        const p = parentDashboard?.students?.find((s: any) => s.studentID === selectedStudentId);
-        return p ? Math.round(((p.attendanceRate ?? 0) / 100) * (attendance?.filter(a => a.studentID === selectedStudentId).length || 0)) : 0;
-      })()
-    : attendance?.filter(a => a.status === 'present').length || 0;
+  const attendanceRate = user?.role === 'parent'
+    ? (selectedStudent?.attendanceRate != null ? `${Math.round(selectedStudent.attendanceRate)}%` : '—')
+    : (() => {
+        const present = attendance?.filter(a => a.status === 'present').length || 0;
+        const total = attendance?.length || 0;
+        return total > 0 ? `${Math.round((present / total) * 100)}%` : '—';
+      })();
 
-  const totalAttendance = user?.role === 'parent'
-    ? (attendance?.filter(a => a.studentID === selectedStudentId).length || 0)
-    : attendance?.length || 0;
+  const attendanceSub = user?.role === 'parent' ? undefined
+    : (() => {
+        const present = attendance?.filter(a => a.status === 'present').length || 0;
+        const total = attendance?.length || 0;
+        return `${present} present / ${total} total`;
+      })();
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -146,7 +160,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Parent: student selector */}
-      {user?.role === 'parent' && parentDashboard?.students?.length > 1 && (
+      {user?.role === 'parent' && parentDashboard?.students?.length > 0 && (
         <div className="card p-4 flex items-center gap-4">
           <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
             <Users className="w-4 h-4 text-brand-500" />
@@ -215,47 +229,57 @@ export default function DashboardPage() {
         {user?.role !== 'tutor' && (
           <StatCard
             title="Attendance Rate"
-            value={totalAttendance > 0 ? `${Math.round((presentCount / totalAttendance) * 100)}%` : '—'}
+            value={attendanceRate}
             icon={<TrendingUp className="w-5 h-5 text-rose-600" />}
             color="bg-rose-50"
-            sub={`${presentCount} present / ${totalAttendance} total`}
+            sub={attendanceSub}
           />
         )}
       </div>
 
-      {/* Parent: per-student stats */}
+      {/* Parent: per-student stats (clickable to select) */}
       {user?.role === 'parent' && parentDashboard?.students?.length > 0 && (
         <div>
-          <h3 className="section-title text-base mb-3">Per-Student Overview</h3>
+          <h3 className="section-title text-base mb-3">Students</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(parentDashboard.students as any[]).map((s) => (
-              <div key={s.studentID} className="card p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-white text-sm font-semibold">{(s.stuFirstName?.[0] ?? '')}{(s.stuLastName?.[0] ?? '')}</span>
+            {(parentDashboard.students as any[]).map((s) => {
+              const isSelected = s.studentID === selectedStudentId;
+              return (
+                <button
+                  key={s.studentID}
+                  onClick={() => setSelectedStudentId(s.studentID)}
+                  className={`card p-5 text-left w-full transition-all ${isSelected ? 'ring-2 ring-brand-500 ring-offset-1' : 'hover:shadow-md'}`}
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-brand-500' : 'bg-brand-700'}`}>
+                      <span className="text-white text-sm font-semibold">{(s.stuFirstName?.[0] ?? '')}{(s.stuLastName?.[0] ?? '')}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-surface-900 truncate">{s.stuFirstName} {s.stuLastName}</p>
+                      {isSelected && <p className="text-xs text-brand-600 font-medium">Selected</p>}
+                    </div>
                   </div>
-                  <p className="font-semibold text-surface-900">{s.stuFirstName} {s.stuLastName}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wide">Enrollments</p>
-                    <p className="text-xl font-bold text-surface-900">{s.enrollmentCount}</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-surface-500 uppercase tracking-wide">Enrollments</p>
+                      <p className="text-xl font-bold text-surface-900">{s.enrollmentCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-surface-500 uppercase tracking-wide">Avg. Grade</p>
+                      <p className="text-xl font-bold text-surface-900">{s.avgGrade != null ? s.avgGrade : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-surface-500 uppercase tracking-wide">Attendance</p>
+                      <p className="text-xl font-bold text-surface-900">{s.attendanceRate != null ? `${Math.round(s.attendanceRate)}%` : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-surface-500 uppercase tracking-wide">Balance</p>
+                      <p className={`text-xl font-bold ${Number(s.balance) > 0 ? 'text-rose-600' : 'text-surface-900'}`}>₱{Number(s.balance).toLocaleString()}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wide">Avg. Grade</p>
-                    <p className="text-xl font-bold text-surface-900">{s.avgGrade != null ? s.avgGrade : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wide">Attendance</p>
-                    <p className="text-xl font-bold text-surface-900">{s.attendanceRate != null ? `${Math.round(s.attendanceRate)}%` : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wide">Balance</p>
-                    <p className={`text-xl font-bold ${Number(s.balance) > 0 ? 'text-rose-600' : 'text-surface-900'}`}>₱{Number(s.balance).toLocaleString()}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

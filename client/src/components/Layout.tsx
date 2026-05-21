@@ -21,6 +21,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: <BarChart3 className="w-4 h-4" />, roles: ['admin', 'tutor', 'student', 'parent'] },
   { to: '/enrollment', label: 'Enrollment', icon: <ClipboardList className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
+  { to: '/enlistment', label: 'Enlistment', icon: <ClipboardList className="w-4 h-4" />, roles: ['admin', 'student'] },
   { to: '/payment', label: 'Payments', icon: <CreditCard className="w-4 h-4" />, roles: ['admin', 'student', 'parent'] },
   { to: '/records/students', label: 'Students', icon: <Users className="w-4 h-4" />, roles: ['admin', 'tutor'] },
     { to: '/records/parents', label: 'Parent/Guardian', icon: <KeyRound className="w-4 h-4" />, roles: ['admin'] },

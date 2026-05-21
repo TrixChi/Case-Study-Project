@@ -145,29 +145,21 @@ router.patch('/students/:id', authorize('admin'), async (req: AuthRequest, res: 
       return res.status(400).json({ success: false, error: 'Invalid status' });
     }
 
-    const updates: Record<string, unknown> = {
-      email: req.body.email?.toLowerCase(),
-      stuFirstName: req.body.stuFirstName,
-      stuMiddleName: req.body.stuMiddleName || null,
-      stuLastName: req.body.stuLastName,
-      stuContactInfo: req.body.stuContactInfo,
-      address: req.body.address,
-      status: req.body.status,
-      parentID: req.body.parentID ?? null,
-    };
-
+    const updates: Record<string, unknown> = {};
+    if (req.body.email) updates.email = String(req.body.email).toLowerCase();
+    if (req.body.stuFirstName !== undefined) updates.stuFirstName = req.body.stuFirstName;
+    if (req.body.stuMiddleName !== undefined) updates.stuMiddleName = req.body.stuMiddleName || null;
+    if (req.body.stuLastName !== undefined) updates.stuLastName = req.body.stuLastName;
+    if (req.body.stuContactInfo !== undefined) updates.stuContactInfo = req.body.stuContactInfo;
+    if (req.body.address !== undefined) updates.address = req.body.address;
+    if (req.body.status !== undefined) updates.status = req.body.status;
+    if ('parentID' in req.body) updates.parentID = req.body.parentID ?? null;
     if (req.body.password) {
       updates.encrypted_password = await bcrypt.hash(req.body.password, 12);
     }
     if (req.body.overdueFees !== undefined) {
       updates.overdueFees = req.body.overdueFees === '' ? null : Number(req.body.overdueFees);
     }
-
-    Object.keys(updates).forEach((key) => {
-      if (updates[key] === undefined) {
-        delete updates[key];
-      }
-    });
 
     const { data, error } = await supabase
       .from('student')
@@ -573,7 +565,7 @@ router.patch('/tutors/:id', authorize('admin'), async (req: AuthRequest, res: Re
     if (tutorFirstName !== undefined) updates.tutorFirstName = tutorFirstName;
     if (tutorLastName !== undefined) updates.tutorLastName = tutorLastName;
     if (specialization !== undefined) updates.specialization = specialization;
-    if (email !== undefined) updates.email = String(email).toLowerCase();
+    if (email) updates.email = String(email).toLowerCase();
 
     const { data, error } = await supabase
       .from('tutor')
@@ -970,6 +962,52 @@ router.post('/parents/me', authorize('student'), async (req: AuthRequest, res: R
     }
     return res.status(existingParent ? 200 : 201).json({ success: true, data, message: 'Parent request submitted' });
   } catch (err) {
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+router.patch('/parents/:id', authorize('admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { parentFirstName, parentMiddleName, parentLastName, contactInfo, relationship, studentIDs } = req.body;
+    const parentId = Number(req.params.id);
+
+    const updates: Record<string, unknown> = {};
+    if (parentFirstName !== undefined) updates.parentFirstName = parentFirstName;
+    if (parentMiddleName !== undefined) updates.parentMiddleName = parentMiddleName || '';
+    if (parentLastName !== undefined) updates.parentLastName = parentLastName;
+    if (contactInfo !== undefined) updates.contactInfo = contactInfo;
+    if (relationship !== undefined) updates.relationshipStatus = relationship;
+
+    const { data, error } = await supabase
+      .from('parent')
+      .update(updates)
+      .eq('parentID', parentId)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    if (Array.isArray(studentIDs)) {
+      const newIDs = studentIDs.map(Number).filter(Boolean);
+
+      const { data: currentStudents } = await supabase
+        .from('student').select('studentID').eq('parentID', parentId);
+      const currentIDs = (currentStudents || []).map((s: { studentID: number }) => s.studentID);
+
+      const toUnlink = currentIDs.filter((id) => !newIDs.includes(id));
+      if (toUnlink.length > 0) {
+        await supabase.from('student').update({ parentID: null }).in('studentID', toUnlink);
+      }
+      if (newIDs.length > 0) {
+        await supabase.from('student').update({ parentID: parentId }).in('studentID', newIDs);
+      }
+      const primaryStudentID = newIDs[0] ?? null;
+      await supabase.from('parent').update({ studentID: primaryStudentID }).eq('parentID', parentId);
+    }
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('PATCH /records/parents/:id failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Plus, UserPlus } from 'lucide-react';
+import { CheckCircle2, Plus, UserPlus, Pencil, Search } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Parent, Student } from '../types';
@@ -39,8 +39,49 @@ export default function ParentModulePage() {
 
   const [showAdminForm, setShowAdminForm] = useState(false);
   const [adminForm, setAdminForm] = useState({ ...emptyForm, studentID: '' });
-
   const resetAdminForm = () => setAdminForm({ ...emptyForm, studentID: '' });
+
+  const [editingParent, setEditingParent] = useState<Parent | null>(null);
+  const [editForm, setEditForm] = useState({
+    parentFirstName: '', parentMiddleName: '', parentLastName: '',
+    contactInfo: '', relationship: '',
+  });
+  const [editStudentIDs, setEditStudentIDs] = useState<Set<number>>(new Set());
+  const [editStudentSearch, setEditStudentSearch] = useState('');
+
+  const openEdit = (parent: Parent) => {
+    setEditingParent(parent);
+    setEditForm({
+      parentFirstName: parent.parentFirstName,
+      parentMiddleName: parent.parentMiddleName || '',
+      parentLastName: parent.parentLastName,
+      contactInfo: parent.contactInfo,
+      relationship: parent.relationshipStatus || parent.relationship || '',
+    });
+    setEditStudentIDs(new Set(
+      students.filter((s: Student) => s.parentID === parent.parentID).map((s: Student) => s.studentID)
+    ));
+    setEditStudentSearch('');
+  };
+
+  const updateMutation = useMutation({
+    mutationFn: async (payload: typeof editForm) => {
+      const res = await api.patch(`/records/parents/${editingParent?.parentID}`, {
+        ...payload,
+        studentIDs: [...editStudentIDs],
+      });
+      return res.data.data as Parent;
+    },
+    onSuccess: () => {
+      toast.success('Parent updated');
+      qc.invalidateQueries({ queryKey: ['parents'] });
+      qc.invalidateQueries({ queryKey: ['students'] });
+      setEditingParent(null);
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to update parent');
+    },
+  });
 
   const { data: currentParent } = useQuery({
     queryKey: ['parent-self'],
@@ -199,7 +240,12 @@ export default function ParentModulePage() {
                         >
                           View students
                         </button>
-                        <span className="badge badge-green">{getApprovalState(parent)}</span>
+                        <button className="icon-btn" onClick={() => openEdit(parent)} title="Edit parent">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <span className={`badge ${getApprovalState(parent) === 'approved' ? 'badge-green' : getApprovalState(parent) === 'rejected' ? 'badge-red' : 'badge-yellow'}`}>
+                          {getApprovalState(parent)}
+                        </span>
                       </div>
                     </div>
 
@@ -371,6 +417,136 @@ export default function ParentModulePage() {
         </div>
       )}
 
+      {editingParent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-surface-900/50 backdrop-blur-sm" onClick={() => setEditingParent(null)} />
+          <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-2xl animate-slide-in">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-100">
+              <h2 className="section-title">Edit Parent</h2>
+              <button onClick={() => setEditingParent(null)} className="icon-btn icon-btn--muted">×</button>
+            </div>
+            <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">First name *</label>
+                <input
+                  className="input"
+                  value={editForm.parentFirstName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, parentFirstName: e.target.value }))}
+                  placeholder="First name"
+                />
+              </div>
+              <div>
+                <label className="label">Middle name</label>
+                <input
+                  className="input"
+                  value={editForm.parentMiddleName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, parentMiddleName: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="label">Last name *</label>
+                <input
+                  className="input"
+                  value={editForm.parentLastName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, parentLastName: e.target.value }))}
+                  placeholder="Last name"
+                />
+              </div>
+              <div>
+                <label className="label">Contact info *</label>
+                <input
+                  className="input"
+                  value={editForm.contactInfo}
+                  onChange={(e) => setEditForm((f) => ({ ...f, contactInfo: e.target.value }))}
+                  placeholder="Phone number or address"
+                />
+              </div>
+              <div>
+                <label className="label">Relationship *</label>
+                <select
+                  className="input"
+                  value={editForm.relationship}
+                  onChange={(e) => setEditForm((f) => ({ ...f, relationship: e.target.value }))}
+                >
+                  <option value="">Select relationship</option>
+                  {RELATIONSHIP_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">Linked students</label>
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
+                  <input
+                    className="input pl-9"
+                    placeholder="Search students…"
+                    value={editStudentSearch}
+                    onChange={(e: { target: { value: string } }) => setEditStudentSearch(e.target.value)}
+                  />
+                </div>
+                <div className="border border-surface-200 rounded-lg max-h-44 overflow-y-auto divide-y divide-surface-50">
+                  {students
+                    .filter((s: Student) => {
+                      const term = editStudentSearch.toLowerCase();
+                      return !term ||
+                        `${s.stuFirstName} ${s.stuLastName}`.toLowerCase().includes(term);
+                    })
+                    .map((s: Student) => (
+                      <label key={s.studentID} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-50">
+                        <input
+                          type="checkbox"
+                          checked={editStudentIDs.has(s.studentID)}
+                          onChange={(e: { target: { checked: boolean } }) => {
+                            setEditStudentIDs((prev: Set<number>) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(s.studentID);
+                              else next.delete(s.studentID);
+                              return next;
+                            });
+                          }}
+                          className="w-4 h-4 accent-brand-600"
+                        />
+                        <span className="text-sm text-surface-800">
+                          {s.stuFirstName} {s.stuLastName}
+                        </span>
+                        <span className={`ml-auto badge ${s.status === 'enrolled' ? 'badge-green' : 'badge-gray'} text-xs`}>
+                          {s.status}
+                        </span>
+                      </label>
+                    ))}
+                  {students.filter((s: Student) => {
+                    const term = editStudentSearch.toLowerCase();
+                    return !term || `${s.stuFirstName} ${s.stuLastName}`.toLowerCase().includes(term);
+                  }).length === 0 && (
+                    <p className="px-3 py-3 text-sm text-surface-400">No students found</p>
+                  )}
+                </div>
+                {editStudentIDs.size > 0 && (
+                  <p className="text-xs text-brand-600 mt-1">{editStudentIDs.size} student{editStudentIDs.size > 1 ? 's' : ''} selected</p>
+                )}
+              </div>
+              <div className="sm:col-span-2 flex justify-end gap-3 pt-2">
+                <button onClick={() => setEditingParent(null)} className="btn-secondary">Cancel</button>
+                <button
+                  onClick={() => updateMutation.mutate(editForm)}
+                  disabled={
+                    !editForm.parentFirstName ||
+                    !editForm.parentLastName ||
+                    !editForm.contactInfo ||
+                    !editForm.relationship ||
+                    updateMutation.isPending
+                  }
+                  className="btn-primary"
+                >
+                  {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

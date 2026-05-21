@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Users } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { Student, Parent } from '../types';
+import { Student, Parent, Subject, Enrollment } from '../types';
 import Modal from '../components/Modal';
 import ConfirmModal from '../components/ConfirmModal';
 import ActionButtons from '../components/ActionButtons';
@@ -36,6 +36,7 @@ export default function StudentsPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const isAdmin = user?.role === 'admin';
+  const isTutor = user?.role === 'tutor';
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -58,6 +59,24 @@ export default function StudentsPage() {
       return res.data.data as Parent[];
     },
     enabled: isAdmin,
+  });
+
+  const { data: tutorSubjects = [] } = useQuery({
+    queryKey: ['subjects'],
+    queryFn: async () => {
+      const res = await api.get('/records/subjects');
+      return res.data.data as Subject[];
+    },
+    enabled: isTutor,
+  });
+
+  const { data: tutorEnrollments = [] } = useQuery({
+    queryKey: ['enrollment'],
+    queryFn: async () => {
+      const res = await api.get('/enrollment');
+      return res.data.data as Enrollment[];
+    },
+    enabled: isTutor,
   });
 
   const parentNameById = parents.reduce<Record<number, string>>((accumulator, parent) => {
@@ -117,6 +136,70 @@ export default function StudentsPage() {
     onSuccess: () => { toast.success('Student deleted'); qc.invalidateQueries({ queryKey: ['students'] }); setDeleteTarget(null); },
     onError: () => toast.error('Failed to delete'),
   });
+
+  if (isTutor) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div>
+          <h1 className="page-title">Students</h1>
+          <p className="text-sm text-surface-500 mt-1">Students enrolled in your subjects</p>
+        </div>
+
+        {isLoading && (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {!isLoading && tutorSubjects.length === 0 && (
+          <div className="card p-10 text-center text-surface-400">
+            <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">No subjects assigned to you yet</p>
+          </div>
+        )}
+
+        {!isLoading && tutorSubjects.map((subject) => {
+          const subjectEnrollments = tutorEnrollments.filter((e) => e.subjectID === subject.subjectID);
+          const enrolledStudents = subjectEnrollments
+            .map((e) => students.find((s) => s.studentID === e.studentID))
+            .filter((s): s is Student => Boolean(s));
+
+          return (
+            <div key={subject.subjectID} className="card overflow-hidden">
+              <div className="px-5 py-4 border-b border-surface-100">
+                <h2 className="section-title">{subject.subjectName}</h2>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {enrolledStudents.length} student{enrolledStudents.length !== 1 ? 's' : ''} enrolled
+                </p>
+              </div>
+              {enrolledStudents.length === 0 ? (
+                <div className="px-5 py-6 text-sm text-surface-400 text-center">No students enrolled</div>
+              ) : (
+                <div className="divide-y divide-surface-50">
+                  {enrolledStudents.map((s) => (
+                    <div key={s.studentID} className="px-5 py-3 flex items-center gap-4">
+                      <div className="w-8 h-8 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-white text-xs font-semibold">
+                          {(s.stuFirstName?.[0] ?? '')}{(s.stuLastName?.[0] ?? '')}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-surface-900 text-sm">
+                          {s.stuFirstName} {s.stuMiddleName ? s.stuMiddleName[0] + '. ' : ''}{s.stuLastName}
+                        </p>
+                        <p className="text-xs text-surface-500">{s.stuContactInfo || '—'}</p>
+                      </div>
+                      <span className={`badge ${STUDENT_STATUS_BADGES[s.status] || 'badge-gray'}`}>{s.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   const filtered = students.filter(s =>
     search === '' ||

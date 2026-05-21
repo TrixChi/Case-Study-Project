@@ -28,8 +28,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         .eq('parentID', profileId);
       const ids = (students || []).map((s: { studentID: number }) => s.studentID);
       query = query.in('studentID', ids.length > 0 ? ids : [0]);
-      // parents only see approved enrollments
       query = query.eq('status', 'approved');
+    } else if (role === 'tutor') {
+      const { data: tutorSubjects } = await supabase
+        .from('subject')
+        .select('subjectID')
+        .eq('tutorID', profileId);
+      const subjectIds = (tutorSubjects || []).map((s: { subjectID: number }) => s.subjectID);
+      query = query.in('subjectID', subjectIds.length > 0 ? subjectIds : [0]).eq('status', 'approved');
     }
 
     const { data, error } = await query;
