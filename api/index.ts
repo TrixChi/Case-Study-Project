@@ -251,14 +251,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Students
       if (sub === 'students' && req.method === 'GET') {
-        let query = supabase.from('student').select('*, parent(parentFirstName,parentLastName,contactInfo,relationshipStatus)');
-        if (user.role === 'student') query = query.eq('studentID', user.profileId);
-        else if (user.role === 'parent') query = query.eq('parentID', user.profileId);
-        else query = query.order('stuLastName');
-        const { data, error } = await query;
-        if (error) throw error;
-        return res.json({ success: true, data });
-      }
+  let query = supabase.from('student').select('*');
+  if (user.role === 'student') query = query.eq('studentID', user.profileId);
+  else if (user.role === 'parent') query = query.eq('parentID', user.profileId);
+  else query = query.order('stuLastName');
+  
+  const { data: students, error } = await query;
+  if (error) throw error;
+
+  // Manually fetch parent info
+  const parentIDs = [...new Set(students.filter((s: any) => s.parentID).map((s: any) => s.parentID))];
+  let parentsMap: Record<number, any> = {};
+  
+  if (parentIDs.length > 0) {
+    const { data: parents } = await supabase
+      .from('parent')
+      .select('parentID, parentFirstName, parentLastName, contactInfo, relationshipStatus')
+      .in('parentID', parentIDs);
+    if (parents) {
+      parentsMap = Object.fromEntries(parents.map((p: any) => [p.parentID, p]));
+    }
+  }
+
+  const result = students.map((s: any) => ({
+    ...s,
+    parent: parentsMap[s.parentID] || null,
+  }));
+
+  return res.json({ success: true, data: result });
+}
 
       if (sub === 'students' && req.method === 'POST') {
         if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
