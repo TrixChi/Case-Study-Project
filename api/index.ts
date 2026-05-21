@@ -1,15 +1,5 @@
-import express from 'express';
-import serverless from 'serverless-http';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const app = express();
-app.use(express.json());
-
-app.get('/api/ping', (_req, res) => {
-  res.json({ ok: true });
-});
-
-app.post('/api/auth/login', (_req, res) => {
-  res.json({ ok: true, message: 'stub login reached' });
-});
-
-export default serverless(app);
+export default function handler(req: VercelRequest, res: VercelResponse) {
+  res.json({ ok: true, path: req.url });
+}
