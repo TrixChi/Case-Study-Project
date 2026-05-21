@@ -213,14 +213,11 @@ export default function TutorsPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">Email</label>
-            <input className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Auto-generated from name" />
-            {!editing && form.tutorFirstName && form.tutorLastName && (
-              <p className="text-xs text-surface-400 mt-1">Auto-generated — you can override it above</p>
-            )}
+            <input className="input bg-surface-50 text-surface-500 cursor-not-allowed" readOnly value={form.email} placeholder="Auto-generated from name" />
           </div>
           <div>
-            <label className="label">Password *</label>
-            <input type="password" className="input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Leave blank for default password" />
+            <label className="label">Password</label>
+            <input type="text" className="input bg-surface-50 text-surface-500 cursor-not-allowed" readOnly value="ABClearning2026" placeholder="Default password" />
           </div>
           <div>
             <label className="label">First Name *</label>

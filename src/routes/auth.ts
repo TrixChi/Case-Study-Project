@@ -167,4 +167,34 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+
+    const { data: user, error } = await supabase
+      .from('app_users')
+      .select('id, email')
+      .ilike('email', email.toLowerCase().trim())
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ success: false, error: 'No account found with that email address' });
+    }
+
+    const temporaryPassword = 'ABClearning2026';
+    const newHash = await bcrypt.hash(temporaryPassword, 12);
+
+    await supabase.from('app_users').update({ password_hash: newHash }).eq('id', user.id);
+
+    return res.json({ success: true, data: { temporaryPassword }, message: 'Password has been reset to the default password' });
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ success: false, error: err?.message || 'Server error' });
+  }
+});
+
 export default router;

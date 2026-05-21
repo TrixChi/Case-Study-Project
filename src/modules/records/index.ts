@@ -38,6 +38,27 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
       return res.json({ success: true, data });
     }
 
+    if (role === 'tutor') {
+      const { data: tutorSubjects } = await supabase
+        .from('subject')
+        .select('subjectID')
+        .eq('tutorID', profileId);
+      const subjectIds = (tutorSubjects || []).map((s: { subjectID: number }) => s.subjectID);
+      const { data: enrollments } = await supabase
+        .from('enrollment')
+        .select('studentID')
+        .eq('status', 'approved')
+        .in('subjectID', subjectIds.length > 0 ? subjectIds : [0]);
+      const studentIds = [...new Set((enrollments || []).map((e: { studentID: number }) => e.studentID))];
+      const { data, error } = await supabase
+        .from('student')
+        .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
+        .in('studentID', studentIds.length > 0 ? studentIds : [0])
+        .order('stuLastName');
+      if (error) throw error;
+      return res.json({ success: true, data });
+    }
+
     const { data, error } = await supabase
       .from('student')
       .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
@@ -64,8 +85,8 @@ router.post('/students', authorize('admin'), async (req: AuthRequest, res: Respo
       parentID,
     } = req.body;
 
-    if (!email || !stuFirstName || !stuLastName || !stuContactInfo || !address) {
-      return res.status(400).json({ success: false, error: 'email, stuFirstName, stuLastName, stuContactInfo, and address are required' });
+    if (!email || !stuFirstName || !stuLastName) {
+      return res.status(400).json({ success: false, error: 'email, stuFirstName, and stuLastName are required' });
     }
 
     if (status && !isValidStudentStatus(status)) {
@@ -83,31 +104,34 @@ router.post('/students', authorize('admin'), async (req: AuthRequest, res: Respo
 
     const normalizedEmail = email.toLowerCase();
     const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
+
+    const insertPayload: Record<string, unknown> = {
+      email: normalizedEmail,
+      encrypted_password: passwordHash,
+      stuFirstName,
+      stuMiddleName: stuMiddleName || '',
+      stuLastName,
+      stuContactInfo: stuContactInfo || '',
+      address: address || '',
+      status: status || 'enrolled',
+    };
+    if (parentID) insertPayload.parentID = Number(parentID);
+
     const { data, error } = await supabase
       .from('student')
-      .insert({
-        email: normalizedEmail,
-        encrypted_password: passwordHash,
-        stuFirstName,
-        stuMiddleName: stuMiddleName || '',
-        stuLastName,
-        stuContactInfo,
-        address,
-        status: status || 'enrolled',
-        parentID: parentID || null,
-      })
+      .insert(insertPayload)
       .select()
       .single();
     if (error) throw error;
 
-    await supabase.from('app_users').insert({
+    supabase.from('app_users').insert({
       email: normalizedEmail,
       password_hash: passwordHash,
       role: 'student',
       first_name: stuFirstName,
       last_name: stuLastName,
       profile_id: data.studentID,
-    });
+    }).then(() => {});
 
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -134,6 +158,9 @@ router.patch('/students/:id', authorize('admin'), async (req: AuthRequest, res: 
 
     if (req.body.password) {
       updates.encrypted_password = await bcrypt.hash(req.body.password, 12);
+    }
+    if (req.body.overdueFees !== undefined) {
+      updates.overdueFees = req.body.overdueFees === '' ? null : Number(req.body.overdueFees);
     }
 
     Object.keys(updates).forEach((key) => {
@@ -166,12 +193,19 @@ router.delete('/students/:id', authorize('admin'), async (req: AuthRequest, res:
 });
 
 // --- SUBJECTS ---
-router.get('/subjects', async (_req: AuthRequest, res: Response) => {
+router.get('/subjects', async (req: AuthRequest, res: Response) => {
   try {
-    const { data, error } = await supabase
+    const { role, profileId } = req.user!;
+    let query = supabase
       .from('subject')
       .select('*, tutor(tutorFirstName, tutorLastName, specialization)')
       .order('subjectName');
+
+    if (role === 'tutor') {
+      query = query.eq('tutorID', profileId);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     return res.json({ success: true, data });
   } catch (err) {
@@ -179,9 +213,6 @@ router.get('/subjects', async (_req: AuthRequest, res: Response) => {
   }
 });
 
-function isTwoDecimalFee(value: unknown) {
-  return typeof value === 'string' && /^\d+(?:\.\d{2})$/.test(value.trim());
-}
 
 function isValidRelationshipStatus(value: unknown): value is (typeof RELATIONSHIP_STATUSES)[number] {
   return typeof value === 'string' && RELATIONSHIP_STATUSES.includes(value as (typeof RELATIONSHIP_STATUSES)[number]);
@@ -214,12 +245,13 @@ router.post('/subjects', authorize('admin'), async (req: AuthRequest, res: Respo
   try {
     const { subjectName, units, description, tutorID, fee } = req.body;
 
-    if (!subjectName || units === undefined || fee === undefined) {
+    if (!subjectName || units === undefined || fee === undefined || fee === '') {
       return res.status(400).json({ success: false, error: 'subjectName, units, and fee are required' });
     }
 
-    if (!isTwoDecimalFee(String(fee))) {
-      return res.status(400).json({ success: false, error: 'fee must have exactly 2 decimal places' });
+    const parsedFee = parseFloat(String(fee));
+    if (isNaN(parsedFee) || parsedFee < 0) {
+      return res.status(400).json({ success: false, error: 'fee must be a valid positive number' });
     }
 
     const { data, error } = await supabase
@@ -229,7 +261,7 @@ router.post('/subjects', authorize('admin'), async (req: AuthRequest, res: Respo
         units: Number(units),
         description: description || null,
         tutorID: tutorID ? Number(tutorID) : null,
-        fee: Number(fee),
+        fee: parseFloat(parsedFee.toFixed(2)),
       })
       .select()
       .single();
@@ -242,14 +274,16 @@ router.post('/subjects', authorize('admin'), async (req: AuthRequest, res: Respo
 
 router.patch('/subjects/:id', authorize('admin'), async (req: AuthRequest, res: Response) => {
   try {
-    if (req.body.fee !== undefined && !isTwoDecimalFee(String(req.body.fee))) {
-      return res.status(400).json({ success: false, error: 'fee must have exactly 2 decimal places' });
-    }
-
     const updates: Record<string, unknown> = { ...req.body };
     if (updates.units !== undefined) updates.units = Number(updates.units);
     if (updates.tutorID !== undefined) updates.tutorID = updates.tutorID ? Number(updates.tutorID) : null;
-    if (updates.fee !== undefined) updates.fee = Number(updates.fee);
+    if (updates.fee !== undefined) {
+      const parsedFee = parseFloat(String(updates.fee));
+      if (isNaN(parsedFee) || parsedFee < 0) {
+        return res.status(400).json({ success: false, error: 'fee must be a valid positive number' });
+      }
+      updates.fee = parseFloat(parsedFee.toFixed(2));
+    }
 
     const { data, error } = await supabase
       .from('subject')
@@ -280,16 +314,16 @@ router.get('/grades', async (req: AuthRequest, res: Response) => {
     const { role, profileId } = req.user!;
     let query = supabase
       .from('grade')
-      .select(`*, student(stuFirstName, stuLastName), subject(subjectName, units), tutor(tutorFirstName, tutorLastName)`) 
+      .select(`*, student(stuFirstName, stuLastName), subject(subjectName, units), tutor(tutorFirstName, tutorLastName)`)
       .order('gradeID', { ascending: false });
 
     if (role === 'student') {
-      query = query.eq('studentID', profileId);
+      query = query.eq('studentID', profileId).eq('released', true);
     } else if (role === 'parent') {
       const { data: students } = await supabase
         .from('student').select('studentID').eq('parentID', profileId);
       const ids = (students || []).map((s: { studentID: number }) => s.studentID);
-      query = query.in('studentID', ids.length > 0 ? ids : [0]);
+      query = query.in('studentID', ids.length > 0 ? ids : [0]).eq('released', true);
     } else if (role === 'tutor') {
       query = query.eq('tutorID', profileId);
     }
@@ -311,7 +345,7 @@ router.post('/grades', authorize('admin', 'tutor'), async (req: AuthRequest, res
 
     const { data, error } = await supabase
       .from('grade')
-      .insert({ studentID, subjectID, tutorID, gradeValue: Number(gradeValue), academicStanding: standing, released: true })
+      .insert({ studentID, subjectID, tutorID, gradeValue: Number(gradeValue), academicStanding: standing, released: req.user!.role !== 'tutor' })
       .select(`*, student(stuFirstName, stuLastName), subject(subjectName), tutor(tutorFirstName, tutorLastName)`) 
       .single();
     if (error) throw error;
@@ -373,7 +407,7 @@ router.get('/attendance', async (req: AuthRequest, res: Response) => {
     const { role, profileId } = req.user!;
     let query = supabase
       .from('attendance')
-      .select(`*, student(stuFirstName, stuLastName), tutor(tutorFirstName, tutorLastName)`) 
+      .select(`*, student(stuFirstName, stuLastName), tutor(tutorFirstName, tutorLastName), subject(subjectName)`)
       .order('attendanceDate', { ascending: false });
 
     if (role === 'student') {
@@ -511,14 +545,14 @@ router.post('/tutors', authorize('admin'), async (req: AuthRequest, res: Respons
 
     if (error) throw error;
 
-    await supabase.from('app_users').insert({
+    supabase.from('app_users').insert({
       email: normalizedEmail,
       password_hash: passwordHash,
       role: 'tutor',
       first_name: tutorFirstName,
       last_name: tutorLastName,
       profile_id: data.tutorID,
-    });
+    }).then(() => {});
 
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -843,14 +877,14 @@ router.post('/parents', authorize('admin'), async (req: AuthRequest, res: Respon
       if (studentUpdateError) throw studentUpdateError;
     }
 
-    await supabase.from('app_users').insert({
+    supabase.from('app_users').insert({
       email: normalizedEmail,
       password_hash: passwordHash,
       role: 'parent',
       first_name: parentFirstName,
       last_name: parentLastName,
       profile_id: data.parentID,
-    });
+    }).then(() => {});
 
     return res.status(201).json({ success: true, data, message: 'Parent request submitted' });
   } catch (err) {

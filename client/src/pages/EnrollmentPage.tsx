@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Check, X, Trash2, Search, Filter, BookOpen, User, Calendar, Hash, AlertCircle } from 'lucide-react';
+import { Check, X, Trash2, Search, Filter, BookOpen, User, Calendar, Hash, AlertCircle } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Enrollment, Student, Subject } from '../types';
@@ -293,11 +293,6 @@ export default function EnrollmentPage() {
 					<h1 className="page-title">Enrollment</h1>
 					<p className="text-sm text-surface-500 mt-1">{enrollments.length} total records</p>
 				</div>
-				{isAdmin && (
-					<button onClick={() => setShowModal(true)} className="btn-primary">
-						<Plus className="w-4 h-4" /> New Enrollment
-					</button>
-				)}
 			</div>
 
 			{/* Filters */}

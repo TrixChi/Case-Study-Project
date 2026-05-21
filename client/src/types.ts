@@ -20,6 +20,7 @@ export interface Student {
   parentID?: number;
   userId?: string;
   email?: string;
+  overdueFees?: number;
   parent?: Parent;
 }
 
@@ -89,12 +90,14 @@ export interface Attendance {
   tutorID?: number;
   student?: Student;
   tutor?: Tutor;
+  subject?: { subjectName: string };
 }
 
 export interface Grade {
   gradeID: number;
   gradeValue: number;
   academicStanding: string;
+  released?: boolean;
   studentID: number;
   subjectID: number;
   tutorID: number;

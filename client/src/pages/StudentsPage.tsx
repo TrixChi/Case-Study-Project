@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Search, Users } from 'lucide-react';
+import { Plus, Search, Users } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Student, Parent } from '../types';
@@ -15,7 +15,7 @@ const emptyForm = {
   email: '',
   password: '',
   stuFirstName: '', stuMiddleName: '', stuLastName: '',
-  stuContactInfo: '', address: '', status: 'enrolled', parentID: '',
+  stuContactInfo: '', address: '', status: 'enrolled', parentID: '', overdueFees: '',
 };
 
 const statusOptions = [
@@ -31,7 +31,6 @@ const generateStudentEmail = (firstName: string, lastName: string) => {
     .toLowerCase()}@abclearning.com`;
 };
 
-const DEFAULT_PASSWORD = 'ABClearning2026';
 
 export default function StudentsPage() {
   const { user } = useAuthStore();
@@ -80,6 +79,7 @@ export default function StudentsPage() {
       address: s.address,
       status: s.status,
       parentID: s.parentID?.toString() || '',
+      overdueFees: s.overdueFees != null ? String(s.overdueFees) : '',
     });
     setShowModal(true);
   };
@@ -92,7 +92,7 @@ export default function StudentsPage() {
         parentID: data.parentID ? Number(data.parentID) : undefined,
       }),
     onSuccess: () => { toast.success('Student added'); qc.invalidateQueries({ queryKey: ['students'] }); setShowModal(false); },
-    onError: () => toast.error('Failed to add student'),
+    onError: (err: { response?: { data?: { error?: string } } }) => toast.error(err.response?.data?.error || 'Failed to add student'),
   });
 
   const updateMutation = useMutation({
@@ -106,7 +106,7 @@ export default function StudentsPage() {
         address: data.address,
         status: data.status,
         parentID: data.parentID ? Number(data.parentID) : null,
-        password: data.password?.trim() || DEFAULT_PASSWORD,
+        overdueFees: data.overdueFees !== '' ? Number(data.overdueFees) : '',
       }),
     onSuccess: () => { toast.success('Student updated'); qc.invalidateQueries({ queryKey: ['students'] }); setShowModal(false); },
     onError: (error: { response?: { data?: { error?: string } } }) => toast.error(error.response?.data?.error || 'Failed to update student'),
@@ -183,6 +183,7 @@ export default function StudentsPage() {
                   <th className="table-cell text-left">Address</th>
                   <th className="table-cell text-left">Status</th>
                   <th className="table-cell text-left">Parent/Guardian</th>
+                  {isAdmin && <th className="table-cell text-left">Overdue Fees</th>}
                   {isAdmin && <th className="table-cell text-right">Actions</th>}
                 </tr>
               </thead>
@@ -217,6 +218,13 @@ export default function StudentsPage() {
                         : s.parentID ? parentNameById[s.parentID] || `Parent #${s.parentID}` : '—'}
                     </td>
                     {isAdmin && (
+                      <td className="table-cell text-surface-500">
+                        {s.overdueFees != null && Number(s.overdueFees) > 0
+                          ? <span className="text-rose-600 font-medium">₱{Number(s.overdueFees).toLocaleString()}</span>
+                          : '—'}
+                      </td>
+                    )}
+                    {isAdmin && (
                       <td className="table-cell text-right">
                         <ActionButtons onEdit={() => openEdit(s)} onDelete={() => setDeleteTarget(s)} />
                       </td>
@@ -238,12 +246,12 @@ export default function StudentsPage() {
       >
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">Email *</label>
-            <input className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="student@ABClearning.com" />
+            <label className="label">Email</label>
+            <input className="input bg-surface-50 text-surface-500 cursor-not-allowed" readOnly value={form.email} placeholder="Auto-generated from name" />
           </div>
           <div>
-            <label className="label">Password *</label>
-            <input type="password" className="input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Leave blank for default password" />
+            <label className="label">Password</label>
+            <input type="text" className="input bg-surface-50 text-surface-500 cursor-not-allowed" readOnly value="ABClearning2026" placeholder="Default password" />
           </div>
           <div>
             <label className="label">First Name *</label>
@@ -288,6 +296,21 @@ export default function StudentsPage() {
               ))}
             </select>
           </div>
+          {editing && (
+            <div className="col-span-2">
+              <label className="label">Overdue Fees <span className="text-surface-400">(optional)</span></label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input"
+                value={form.overdueFees}
+                onChange={e => setForm(f => ({ ...f, overdueFees: e.target.value }))}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-surface-400 mt-1">Additional fees owed beyond regular enrollment fees</p>
+            </div>
+          )}
           <div className="col-span-2 flex justify-end gap-3 pt-2">
             <button
               onClick={() => {
@@ -303,7 +326,6 @@ export default function StudentsPage() {
                 !form.email ||
                 !form.stuFirstName ||
                 !form.stuLastName ||
-                !form.stuContactInfo ||
                 createMutation.isPending ||
                 updateMutation.isPending
               }

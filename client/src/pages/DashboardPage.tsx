@@ -176,7 +176,7 @@ export default function DashboardPage() {
             color="bg-blue-50"
           />
         )}
-        {user?.role !== 'tutor' && (
+        {(user?.role === 'student' || user?.role === 'parent') && (
           <StatCard
             title="Enrollments"
             value={approvedEnrollments}
@@ -203,21 +203,62 @@ export default function DashboardPage() {
             sub={feeSummary?.students ? `${feeSummary.students.length} student${feeSummary.students.length !== 1 ? 's' : ''}` : undefined}
           />
         )}
-        <StatCard
-          title="Avg. Grade"
-          value={avgGrade}
-          icon={<GraduationCap className="w-5 h-5 text-purple-600" />}
-          color="bg-purple-50"
-          sub={`${filteredGrades?.length || 0} records`}
-        />
-        <StatCard
-          title="Attendance Rate"
-          value={totalAttendance > 0 ? `${Math.round((presentCount / totalAttendance) * 100)}%` : '—'}
-          icon={<TrendingUp className="w-5 h-5 text-rose-600" />}
-          color="bg-rose-50"
-          sub={`${presentCount} present / ${totalAttendance} total`}
-        />
+        {user?.role !== 'admin' && user?.role !== 'tutor' && (
+          <StatCard
+            title="Avg. Grade"
+            value={avgGrade}
+            icon={<GraduationCap className="w-5 h-5 text-purple-600" />}
+            color="bg-purple-50"
+            sub={`${filteredGrades?.length || 0} records`}
+          />
+        )}
+        {user?.role !== 'tutor' && (
+          <StatCard
+            title="Attendance Rate"
+            value={totalAttendance > 0 ? `${Math.round((presentCount / totalAttendance) * 100)}%` : '—'}
+            icon={<TrendingUp className="w-5 h-5 text-rose-600" />}
+            color="bg-rose-50"
+            sub={`${presentCount} present / ${totalAttendance} total`}
+          />
+        )}
       </div>
+
+      {/* Parent: per-student stats */}
+      {user?.role === 'parent' && parentDashboard?.students?.length > 0 && (
+        <div>
+          <h3 className="section-title text-base mb-3">Per-Student Overview</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(parentDashboard.students as any[]).map((s) => (
+              <div key={s.studentID} className="card p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-9 h-9 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-sm font-semibold">{(s.stuFirstName?.[0] ?? '')}{(s.stuLastName?.[0] ?? '')}</span>
+                  </div>
+                  <p className="font-semibold text-surface-900">{s.stuFirstName} {s.stuLastName}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-surface-500 uppercase tracking-wide">Enrollments</p>
+                    <p className="text-xl font-bold text-surface-900">{s.enrollmentCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-surface-500 uppercase tracking-wide">Avg. Grade</p>
+                    <p className="text-xl font-bold text-surface-900">{s.avgGrade != null ? s.avgGrade : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-surface-500 uppercase tracking-wide">Attendance</p>
+                    <p className="text-xl font-bold text-surface-900">{s.attendanceRate != null ? `${Math.round(s.attendanceRate)}%` : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-surface-500 uppercase tracking-wide">Balance</p>
+                    <p className={`text-xl font-bold ${Number(s.balance) > 0 ? 'text-rose-600' : 'text-surface-900'}`}>₱{Number(s.balance).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {feeSummary && user?.role !== 'tutor' && (
         <div className="card overflow-hidden">
@@ -273,8 +314,8 @@ export default function DashboardPage() {
 
       {/* Recent activity tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent enrollments — hidden for tutors */}
-        {user?.role !== 'tutor' && <div className="card overflow-hidden">
+        {/* Recent enrollments — only for student and parent */}
+        {(user?.role === 'student' || user?.role === 'parent') && <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-surface-100">
             <h3 className="section-title text-base">Recent Enrollments</h3>
           </div>

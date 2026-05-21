@@ -69,7 +69,8 @@ export default function AttendancePage() {
 
 	const filtered = records.filter(a => {
 		const matchSearch = search === '' ||
-			`${a.student?.stuFirstName} ${a.student?.stuLastName}`.toLowerCase().includes(search.toLowerCase());
+			`${a.student?.stuFirstName} ${a.student?.stuLastName}`.toLowerCase().includes(search.toLowerCase()) ||
+			(a.subject?.subjectName || '').toLowerCase().includes(search.toLowerCase());
 		const matchStatus = filterStatus === 'all' || a.status === filterStatus;
 		return matchSearch && matchStatus;
 	});
@@ -138,6 +139,7 @@ export default function AttendancePage() {
 							<thead>
 								<tr className="table-header border-b border-surface-100">
 									<th className="table-cell text-left">Student</th>
+									<th className="table-cell text-left">Subject</th>
 									<th className="table-cell text-left">Tutor</th>
 									<th className="table-cell text-left">Date</th>
 									<th className="table-cell text-left">Status</th>
@@ -148,6 +150,7 @@ export default function AttendancePage() {
 								{filtered.map((a) => (
 									<tr key={a.attendanceID} className="table-row-hover">
 										<td className="table-cell font-medium">{a.student?.stuFirstName} {a.student?.stuLastName}</td>
+										<td className="table-cell text-surface-500">{a.subject?.subjectName || '—'}</td>
 										<td className="table-cell text-surface-500">
 											{a.tutor ? `${a.tutor.tutorFirstName} ${a.tutor.tutorLastName}` : '—'}
 										</td>

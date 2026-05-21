@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Search, BookOpen } from 'lucide-react';
+import { Plus, Search, BookOpen, ClipboardList } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { Subject, Tutor } from '../types';
+import { Subject, Tutor, Enrollment } from '../types';
 import Modal from '../components/Modal';
 import ConfirmModal from '../components/ConfirmModal';
 import ActionButtons from '../components/ActionButtons';
+import { ENROLLMENT_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
 
 type SubjectForm = {
@@ -29,6 +30,7 @@ export default function SubjectsPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const isAdmin = user?.role === 'admin';
+  const isStudent = user?.role === 'student';
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -53,6 +55,31 @@ export default function SubjectsPage() {
   });
 
   const tutorLookup = useMemo(() => new Map(tutors.map((t) => [t.tutorID, t])), [tutors]);
+
+  const { data: myEnrollments = [] } = useQuery({
+    queryKey: ['enrollment'],
+    queryFn: async () => {
+      const res = await api.get('/enrollment');
+      return res.data.data as Enrollment[];
+    },
+    enabled: isStudent,
+  });
+
+  const enrollmentBySubject = useMemo(
+    () => new Map(myEnrollments.map((e) => [e.subjectID, e])),
+    [myEnrollments]
+  );
+
+  const enlistMutation = useMutation({
+    mutationFn: (subjectID: number) => api.post('/enrollment', { subjectIDs: [subjectID] }),
+    onSuccess: () => {
+      toast.success('Enlistment submitted — awaiting approval');
+      qc.invalidateQueries({ queryKey: ['enrollment'] });
+    },
+    onError: (err: { response?: { data?: { error?: string } } }) => {
+      toast.error(err.response?.data?.error || 'Failed to enlist');
+    },
+  });
 
   const openCreate = () => {
     setEditing(null);
@@ -185,6 +212,7 @@ export default function SubjectsPage() {
                   <th className="table-cell text-left">Description</th>
                   <th className="table-cell text-left">Tutor</th>
                   <th className="table-cell text-left">Fee</th>
+                  {isStudent && <th className="table-cell text-left">Status</th>}
                   {isAdmin && <th className="table-cell text-right">Actions</th>}
                 </tr>
               </thead>
@@ -199,6 +227,30 @@ export default function SubjectsPage() {
                       <td className="table-cell text-surface-500 max-w-[260px] truncate">{subject.description || '—'}</td>
                       <td className="table-cell text-surface-500">{tutor ? `${tutor.tutorFirstName} ${tutor.tutorLastName}` : 'Unassigned'}</td>
                       <td className="table-cell text-surface-700 font-medium">{Number(subject.fee || 0).toFixed(2)}</td>
+                      {isStudent && (() => {
+                        const enrollment = enrollmentBySubject.get(subject.subjectID);
+                        if (enrollment) {
+                          return (
+                            <td className="table-cell">
+                              <span className={`badge ${ENROLLMENT_STATUS_BADGES[enrollment.status] || 'badge-gray'}`}>
+                                {enrollment.status}
+                              </span>
+                            </td>
+                          );
+                        }
+                        return (
+                          <td className="table-cell">
+                            <button
+                              onClick={() => enlistMutation.mutate(subject.subjectID)}
+                              disabled={enlistMutation.isPending}
+                              className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
+                            >
+                              <ClipboardList className="w-3.5 h-3.5" />
+                              Enlist
+                            </button>
+                          </td>
+                        );
+                      })()}
                       {isAdmin && (
                         <td className="table-cell text-right">
                           <ActionButtons onEdit={() => openEdit(subject)} onDelete={() => setDeleteTarget(subject)} />
@@ -282,7 +334,7 @@ export default function SubjectsPage() {
               onChange={(e) => setForm((f) => ({ ...f, fee: e.target.value }))}
               placeholder="100.00"
             />
-            <p className="text-xs text-surface-400 mt-1">Use exactly 2 decimals, like 100.00</p>
+            <p className="text-xs text-surface-400 mt-1">e.g. 1000 or 1500.50</p>
           </div>
           <div className="col-span-2 flex justify-end gap-3 pt-2">
             <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>

@@ -58,10 +58,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/enrollment - admin creates enrollment (supports subjectIDs array)
-router.post('/', authorize('admin'), async (req: AuthRequest, res: Response) => {
+// POST /api/enrollment - admin or student creates enrollment
+router.post('/', authorize('admin', 'student'), async (req: AuthRequest, res: Response) => {
   try {
-    const { studentID, subjectIDs, subjectID } = req.body;
+    const { role, profileId } = req.user!;
+    const studentID = role === 'student' ? profileId : Number(req.body.studentID);
+    const { subjectIDs, subjectID } = req.body;
     const ids: number[] = subjectIDs?.length > 0
       ? subjectIDs.map(Number)
       : subjectID ? [Number(subjectID)] : [];
@@ -80,7 +82,7 @@ router.post('/', authorize('admin'), async (req: AuthRequest, res: Response) => 
         .select('enrollmentID')
         .eq('studentID', studentID)
         .eq('subjectID', sid)
-        .eq('status', 'approved')
+        .in('status', ['approved', 'pending'])
         .single();
 
       if (existing) {
