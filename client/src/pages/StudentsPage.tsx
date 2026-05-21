@@ -79,7 +79,7 @@ export default function StudentsPage() {
     enabled: isTutor,
   });
 
-  const parentNameById = parents.reduce<Record<number, string>>((accumulator, parent) => {
+  const parentNameById = parents.reduce<Record<number, string>>((accumulator: Record<number, string>, parent: Parent) => {
     accumulator[parent.parentID] = `${parent.parentFirstName} ${parent.parentLastName}`.trim();
     return accumulator;
   }, {});
@@ -124,8 +124,8 @@ export default function StudentsPage() {
         stuContactInfo: data.stuContactInfo,
         address: data.address,
         status: data.status,
-        parentID: data.parentID ? Number(data.parentID) : null,
-        overdueFees: data.overdueFees !== '' ? Number(data.overdueFees) : '',
+        ...(data.parentID ? { parentID: Number(data.parentID) } : { parentID: null }),
+        ...(data.overdueFees !== '' ? { overdueFees: Number(data.overdueFees) } : {}),
       }),
     onSuccess: () => { toast.success('Student updated'); qc.invalidateQueries({ queryKey: ['students'] }); setShowModal(false); },
     onError: (error: { response?: { data?: { error?: string } } }) => toast.error(error.response?.data?.error || 'Failed to update student'),

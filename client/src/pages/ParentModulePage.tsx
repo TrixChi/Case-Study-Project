@@ -132,13 +132,6 @@ export default function ParentModulePage() {
   });
 
   const parentList = allParents;
-  const [expandedParent, setExpandedParent] = useState<number | null>(null);
-  const [parentStudents, setParentStudents] = useState<Record<number, Student[]>>({});
-
-  const fetchParentStudents = async (parentID: number) => {
-    const res = await api.get(`/records/parents/${parentID}/students`);
-    return res.data.data as Student[];
-  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -207,67 +200,49 @@ export default function ParentModulePage() {
               </div>
             ) : (
               <div className="divide-y divide-surface-50">
-                {parentList.map((parent) => (
-                  <div key={parent.parentID} className="px-5 py-4 border-b border-surface-50">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex-1">
-                        <p className="font-medium text-surface-900">
-                          {parent.parentFirstName} {parent.parentLastName}
-                        </p>
-                        <p className="text-sm text-surface-600">{parent.contactInfo}</p>
-                        <p className="text-sm text-surface-500">
-                          Relationship: {parent.relationshipStatus || parent.relationship}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          className="btn-secondary"
-                          onClick={async () => {
-                            if (expandedParent === parent.parentID) {
-                              setExpandedParent(null);
-                              return;
-                            }
-                            setExpandedParent(parent.parentID);
-                            if (!parentStudents[parent.parentID]) {
-                              try {
-                                const studentsForParent = await fetchParentStudents(parent.parentID);
-                                setParentStudents((prev) => ({ ...prev, [parent.parentID]: studentsForParent }));
-                              } catch (err) {
-                                toast.error('Failed to load linked students');
-                              }
-                            }
-                          }}
-                        >
-                          View students
-                        </button>
-                        <button className="icon-btn" onClick={() => openEdit(parent)} title="Edit parent">
+                {parentList.map((parent) => {
+                  const linkedStudents = students.filter((s: Student) => s.parentID === parent.parentID);
+                  return (
+                    <div key={parent.parentID} className="px-5 py-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-surface-900">
+                              {parent.parentFirstName} {parent.parentLastName}
+                            </p>
+                            <span className={`badge ${getApprovalState(parent) === 'approved' ? 'badge-green' : getApprovalState(parent) === 'rejected' ? 'badge-red' : 'badge-yellow'}`}>
+                              {getApprovalState(parent)}
+                            </span>
+                          </div>
+                          <p className="text-sm text-surface-600 mt-0.5">{parent.contactInfo}</p>
+                          <p className="text-xs text-surface-500 mt-0.5">
+                            {parent.relationshipStatus || parent.relationship}
+                          </p>
+                          {linkedStudents.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {linkedStudents.map((s: Student) => {
+                                const name = `${s.stuFirstName || ''} ${s.stuLastName || ''}`.trim() || 'Unnamed Student';
+                                return (
+                                  <span key={s.studentID} className="inline-flex items-center gap-1.5 bg-surface-100 text-surface-700 text-xs rounded-full px-2.5 py-1">
+                                    <span className="w-4 h-4 bg-brand-700 rounded-full flex items-center justify-center text-white" style={{ fontSize: 9 }}>
+                                      {(s.stuFirstName?.[0] ?? '').toUpperCase()}
+                                    </span>
+                                    {name}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-surface-400 mt-2 italic">No students linked</p>
+                          )}
+                        </div>
+                        <button className="icon-btn flex-shrink-0" onClick={() => openEdit(parent)} title="Edit parent">
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <span className={`badge ${getApprovalState(parent) === 'approved' ? 'badge-green' : getApprovalState(parent) === 'rejected' ? 'badge-red' : 'badge-yellow'}`}>
-                          {getApprovalState(parent)}
-                        </span>
                       </div>
                     </div>
-
-                    {expandedParent === parent.parentID && (
-                      <div className="mt-3 bg-surface-50 rounded-lg p-3">
-                        <p className="text-sm text-surface-600 mb-2">Students linked to this parent:</p>
-                        {(parentStudents[parent.parentID] || []).length === 0 ? (
-                          <p className="text-sm text-surface-500">No students linked</p>
-                        ) : (
-                          <ul className="list-disc pl-5 text-sm text-surface-700">
-                            {(parentStudents[parent.parentID] || []).map((s) => {
-                              const name = `${s.stuFirstName || ''} ${s.stuLastName || ''}`.trim() || 'Unnamed Student';
-                              return (
-                                <li key={s.studentID}>#{s.studentID} — {name}{s.status ? ` (${s.status})` : ''}</li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

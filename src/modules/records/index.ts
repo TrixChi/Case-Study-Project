@@ -157,8 +157,10 @@ router.patch('/students/:id', authorize('admin'), async (req: AuthRequest, res: 
     if (req.body.password) {
       updates.encrypted_password = await bcrypt.hash(req.body.password, 12);
     }
-    if (req.body.overdueFees !== undefined) {
-      updates.overdueFees = req.body.overdueFees === '' ? null : Number(req.body.overdueFees);
+    if (req.body.overdueFees !== undefined && req.body.overdueFees !== '') {
+      updates.overdueFees = Number(req.body.overdueFees);
+    } else if (req.body.overdueFees === null) {
+      updates.overdueFees = null;
     }
 
     const { data, error } = await supabase
@@ -170,6 +172,7 @@ router.patch('/students/:id', authorize('admin'), async (req: AuthRequest, res: 
     if (error) throw error;
     return res.json({ success: true, data });
   } catch (err) {
+    console.error('PATCH /records/students/:id failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -577,6 +580,7 @@ router.patch('/tutors/:id', authorize('admin'), async (req: AuthRequest, res: Re
     if (error) throw error;
     return res.json({ success: true, data });
   } catch (err) {
+    console.error('PATCH /records/tutors/:id failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });

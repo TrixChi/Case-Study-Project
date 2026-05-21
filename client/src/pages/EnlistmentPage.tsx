@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, X, ClipboardList, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { Enlistment, Subject } from '../types';
+import { Enlistment, Student } from '../types';
 import { ENROLLMENT_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
 
@@ -42,17 +42,20 @@ export default function EnlistmentPage() {
     onError: () => toast.error('Failed to remove enlistment'),
   });
 
-  const bySubject = useMemo(() => {
-    const map = new Map<number, { subject: Subject; enlistments: Enlistment[] }>();
+  // Group by student for admin view
+  const byStudent = useMemo(() => {
+    const map = new Map<number, { student: Student; enlistments: Enlistment[] }>();
     for (const e of enlistments) {
-      if (!e.subject) continue;
-      if (!map.has(e.subjectID)) {
-        map.set(e.subjectID, { subject: e.subject as Subject, enlistments: [] });
+      if (!e.student) continue;
+      if (!map.has(e.studentID)) {
+        map.set(e.studentID, { student: e.student as Student, enlistments: [] });
       }
-      map.get(e.subjectID)!.enlistments.push(e);
+      map.get(e.studentID)!.enlistments.push(e);
     }
     return [...map.values()].sort((a, b) =>
-      a.subject.subjectName.localeCompare(b.subject.subjectName)
+      `${a.student.stuLastName} ${a.student.stuFirstName}`.localeCompare(
+        `${b.student.stuLastName} ${b.student.stuFirstName}`
+      )
     );
   }, [enlistments]);
 
@@ -65,7 +68,7 @@ export default function EnlistmentPage() {
         <p className="text-sm text-surface-500 mt-1">
           {isAdmin
             ? `${enlistments.length} total enlistment${enlistments.length !== 1 ? 's' : ''}${pendingCount > 0 ? ` — ${pendingCount} pending` : ''}`
-            : `${enlistments.length} submitted enlistment${enlistments.length !== 1 ? 's' : ''}`}
+            : `${enlistments.length} enlisted subject${enlistments.length !== 1 ? 's' : ''}`}
         </p>
       </div>
 
@@ -78,23 +81,27 @@ export default function EnlistmentPage() {
       {!isLoading && enlistments.length === 0 && (
         <div className="card p-10 text-center text-surface-400">
           <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">No enlistments found</p>
+          <p className="text-sm">{isStudent ? 'No enlisted subjects' : 'No enlistments found'}</p>
         </div>
       )}
 
-      {/* Admin: grouped by subject */}
-      {isAdmin && !isLoading && bySubject.map(({ subject, enlistments: rows }) => {
+      {/* Admin: grouped by student */}
+      {isAdmin && !isLoading && byStudent.map(({ student, enlistments: rows }) => {
         const pending = rows.filter((r) => r.status === 'pending').length;
         return (
-          <div key={subject.subjectID} className="card overflow-hidden">
-            <div className="px-5 py-4 border-b border-surface-100 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="section-title">{subject.subjectName}</h2>
+          <div key={student.studentID} className="card overflow-hidden">
+            <div className="px-5 py-4 border-b border-surface-100 flex items-center gap-3">
+              <div className="w-9 h-9 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-white text-xs font-semibold">
+                  {(student.stuFirstName?.[0] ?? '')}{(student.stuLastName?.[0] ?? '')}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="section-title">
+                  {student.stuFirstName} {student.stuLastName}
+                </h2>
                 <p className="text-xs text-surface-500 mt-0.5">
-                  {subject.tutor
-                    ? `${subject.tutor.tutorFirstName} ${subject.tutor.tutorLastName}`
-                    : 'No tutor assigned'}{' '}
-                  · {rows.length} student{rows.length !== 1 ? 's' : ''}
+                  {rows.length} subject{rows.length !== 1 ? 's' : ''} enlisted
                   {pending > 0 && <span className="ml-2 badge badge-yellow">{pending} pending</span>}
                 </p>
               </div>
@@ -104,12 +111,13 @@ export default function EnlistmentPage() {
                 <div key={e.enlistmentID} className="px-5 py-3 flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-surface-900 text-sm">
-                      {e.student
-                        ? `${e.student.stuFirstName} ${e.student.stuLastName}`
-                        : `Student #${e.studentID}`}
+                      {e.subject?.subjectName || `Subject #${e.subjectID}`}
                     </p>
                     <p className="text-xs text-surface-500 mt-0.5">
-                      Submitted {new Date(e.enlistmentDate).toLocaleDateString()}
+                      {e.subject?.tutor
+                        ? `${e.subject.tutor.tutorFirstName} ${e.subject.tutor.tutorLastName}`
+                        : 'No tutor assigned'}{' '}
+                      · Submitted {new Date(e.enlistmentDate).toLocaleDateString()}
                       {e.validatedAt && ` · Reviewed ${new Date(e.validatedAt).toLocaleDateString()}`}
                     </p>
                   </div>
@@ -139,7 +147,7 @@ export default function EnlistmentPage() {
                     )}
                     {e.status === 'approved' && (
                       <button
-                        title="Unapprove"
+                        title="Revoke approval"
                         onClick={() => statusMutation.mutate({ id: e.enlistmentID, status: 'pending' })}
                         disabled={statusMutation.isPending}
                         className="icon-btn text-surface-400 hover:bg-surface-100"
