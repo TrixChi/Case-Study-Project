@@ -1,5 +1,9 @@
-export type UserRole = 'admin' | 'tutor' | 'student' | 'parent';
+// export type UserRole = 'admin' | 'tutor' | 'student' | 'parent';
 
+// Re-export from the canonical root-level types
+export * from '../../index';
+
+/*
 export interface User {
   id: string;
   email: string;
@@ -127,3 +131,4 @@ export interface ApiResponse<T = unknown> {
   error?: string;
   message?: string;
 }
+*/
