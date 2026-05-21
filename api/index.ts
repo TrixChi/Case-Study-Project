@@ -1,26 +1,18 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import serverless from 'serverless-http';
 
-import authRoutes from '../src/routes/auth.js';
-import enrollmentRoutes from '../src/routes/enrollment.js';
-import paymentRoutes from '../src/routes/payment.js';
-import recordsRoutes from '../src/routes/records.js';
+import authRoutes from '../src/routes/auth';
+import enrollmentRoutes from '../src/routes/enrollment';
+import paymentRoutes from '../src/routes/payment';
+import recordsRoutes from '../src/routes/records';
 
 dotenv.config();
 
 const app = express();
 
-// Startup log to help diagnose cold-start issues on Vercel
-console.log('[api/index] handler loaded at', new Date().toISOString());
-
-// Allow all origins in production — Vercel frontend and backend share the same domain,
-// so CORS isn't needed for same-origin, but allow it for flexibility / custom domains.
-app.use(cors({
-  origin: true,
-  credentials: true,
-}));
-
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -37,5 +29,4 @@ app.use((_req, res) => {
   res.status(404).json({ success: false, error: 'Route not found' });
 });
 
-// Export the Express app directly so Vercel uses the Node handler without extra wrappers
-export default app;
+export default serverless(app);

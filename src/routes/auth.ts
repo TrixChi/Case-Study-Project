@@ -2,9 +2,9 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
-import { supabase } from '../lib/supabase.js';
-import { authenticate, AuthRequest } from '../middleware/auth.js';
-import { ApiResponse, AuthPayload } from '../types/index.js';
+import { supabase } from '../lib/supabase';
+import { authenticate, AuthRequest } from '../middleware/auth';
+import { ApiResponse, AuthPayload } from '../types/index';
 
 const router = Router();
 
