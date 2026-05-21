@@ -12,6 +12,19 @@ dotenv.config();
 
 const app = express();
 
+app.get('/api/ping', (_req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
+
+app.get('/api/env-check', (_req, res) => {
+  res.json({
+    hasSupabaseUrl: !!process.env.SUPABASE_URL,
+    hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    supabaseUrlStart: process.env.SUPABASE_URL?.substring(0, 30),
+  });
+});
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
