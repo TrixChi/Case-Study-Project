@@ -39,60 +39,121 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ── AUTH ──────────────────────────────────────────────
     if (module === 'auth') {
 
-      if (sub === 'login' && req.method === 'POST') {
-        const { email, password } = req.body;
-        if (!email || !password)
-          return res.status(400).json({ success: false, error: 'Email and password required' });
+  if (sub === 'login' && req.method === 'POST') {
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.status(400).json({ success: false, error: 'Email and password required' });
 
-        const { data: user, error } = await supabase
-          .from('app_users')
-          .select('*')
-          .ilike('email', email.toLowerCase().trim())
-          .single();
+    const normalized = email.toLowerCase().trim();
 
-        if (error || !user)
-          return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    const tables = [
+      { table: 'admin_staff', role: 'admin',   idCol: 'staffID',   firstCol: 'staffFirstName', lastCol: 'staffLastName' },
+      { table: 'tutor',       role: 'tutor',    idCol: 'tutorID',   firstCol: 'tutorFirstName', lastCol: 'tutorLastName' },
+      { table: 'student',     role: 'student',  idCol: 'studentID', firstCol: 'stuFirstName',   lastCol: 'stuLastName' },
+      { table: 'parent',      role: 'parent',   idCol: 'parentID',  firstCol: 'parentFirstName',lastCol: 'parentLastName' },
+    ];
 
-        const match = await bcrypt.compare(password, user.password_hash);
-        if (!match)
-          return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    let found: any = null;
+    let foundConfig: typeof tables[0] | null = null;
 
-        const token = jwt.sign(
-          { userId: user.id, email: user.email, role: user.role, profileId: user.profile_id },
-          process.env.JWT_SECRET!,
-          { expiresIn: '8h' }
-        );
-
-        return res.json({ success: true, data: { token, user: {
-          id: user.id, email: user.email, role: user.role,
-          firstName: user.first_name, lastName: user.last_name, profileId: user.profile_id,
-        }}});
-      }
-
-      if (sub === 'register' && req.method === 'POST') {
-        const { email, password, role, firstName, lastName, profileId } = req.body;
-        if (!email || !password || !role || !firstName || !lastName)
-          return res.status(400).json({ success: false, error: 'All fields required' });
-
-        const { data: existing } = await supabase
-          .from('app_users').select('id').ilike('email', email.toLowerCase()).single();
-        if (existing)
-          return res.status(409).json({ success: false, error: 'Email already registered' });
-
-        const hash = await bcrypt.hash(password, 12);
-        const { data: newUser, error } = await supabase
-          .from('app_users')
-          .insert({ email: email.toLowerCase(), password_hash: hash, role,
-            first_name: firstName, last_name: lastName, profile_id: profileId ?? null })
-          .select('*').single();
-        if (error) throw error;
-
-        return res.status(201).json({ success: true, data: { user: {
-          id: newUser.id, email: newUser.email, role: newUser.role,
-          firstName: newUser.first_name, lastName: newUser.last_name, profileId: newUser.profile_id,
-        }}, message: 'Registration successful' });
-      }
+    for (const cfg of tables) {
+      const { data } = await supabase
+        .from(cfg.table)
+        .select('*')
+        .ilike('email', normalized)
+        .single();
+      if (data) { found = data; foundConfig = cfg; break; }
     }
+
+    if (!found || !foundConfig)
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+
+    const match = await bcrypt.compare(password, found.password_hash || '');
+    if (!match)
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+
+    const token = jwt.sign(
+      { userId: String(found[foundConfig.idCol]), email: found.email,
+        role: foundConfig.role, profileId: Number(found[foundConfig.idCol]) },
+      process.env.JWT_SECRET!,
+      { expiresIn: '8h' }
+    );
+
+    return res.json({ success: true, data: { token, user: {
+      id: String(found[foundConfig.idCol]),
+      email: found.email,
+      role: foundConfig.role,
+      firstName: found[foundConfig.firstCol],
+      lastName: found[foundConfig.lastCol],
+      profileId: Number(found[foundConfig.idCol]),
+    }}});
+  }
+
+  if (sub === 'register' && req.method === 'POST') {
+    const { email, password, role, firstName, lastName } = req.body;
+    if (!email || !password || !role || !firstName || !lastName)
+      return res.status(400).json({ success: false, error: 'All fields required' });
+
+    const tables: Record<string, { table: string; idCol: string; firstCol: string; lastCol: string; extra: Record<string, unknown> }> = {
+      admin:   { table: 'admin_staff', idCol: 'staffID',   firstCol: 'staffFirstName', lastCol: 'staffLastName',  extra: { role: 'admin' } },
+      tutor:   { table: 'tutor',       idCol: 'tutorID',   firstCol: 'tutorFirstName', lastCol: 'tutorLastName',   extra: { specialization: '' } },
+      student: { table: 'student',     idCol: 'studentID', firstCol: 'stuFirstName',   lastCol: 'stuLastName',     extra: { stuContactInfo: '', address: '', status: 'active' } },
+      parent:  { table: 'parent',      idCol: 'parentID',  firstCol: 'parentFirstName',lastCol: 'parentLastName',  extra: { contactInfo: '', relationship: 'parent' } },
+    };
+
+    const cfg = tables[role];
+    if (!cfg) return res.status(400).json({ success: false, error: 'Invalid role' });
+
+    const hash = await bcrypt.hash(password, 12);
+    const { data, error } = await supabase
+      .from(cfg.table)
+      .insert({ email: email.toLowerCase(), password_hash: hash,
+        [cfg.firstCol]: firstName, [cfg.lastCol]: lastName, ...cfg.extra })
+      .select('*').single();
+
+    if (error) throw error;
+
+    return res.status(201).json({ success: true, data: { user: {
+      id: String(data[cfg.idCol]), email: data.email, role,
+      firstName: data[cfg.firstCol], lastName: data[cfg.lastCol],
+      profileId: Number(data[cfg.idCol]),
+    }}, message: 'Registration successful' });
+  }
+
+  if (sub === 'change-password' && req.method === 'POST') {
+    const user = getUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Not authenticated' });
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ success: false, error: 'Both passwords required' });
+    if (String(newPassword).length < 8)
+      return res.status(400).json({ success: false, error: 'Min 8 characters' });
+
+    const tableMap: Record<string, { table: string; idCol: string }> = {
+      admin:   { table: 'admin_staff', idCol: 'staffID' },
+      tutor:   { table: 'tutor',       idCol: 'tutorID' },
+      student: { table: 'student',     idCol: 'studentID' },
+      parent:  { table: 'parent',      idCol: 'parentID' },
+    };
+    const cfg = tableMap[user.role];
+    if (!cfg) return res.status(400).json({ success: false, error: 'Invalid role' });
+
+    const { data: record } = await supabase
+      .from(cfg.table).select('password_hash').eq(cfg.idCol, user.profileId).single();
+    if (!record) return res.status(404).json({ success: false, error: 'Account not found' });
+
+    const match = await bcrypt.compare(String(currentPassword), record.password_hash || '');
+    if (!match) return res.status(400).json({ success: false, error: 'Current password incorrect' });
+
+    const newHash = await bcrypt.hash(String(newPassword), 12);
+    const { error } = await supabase
+      .from(cfg.table).update({ password_hash: newHash }).eq(cfg.idCol, user.profileId);
+    if (error) throw error;
+
+    return res.json({ success: true, message: 'Password updated' });
+  }
+}
 
     // ── Require auth for everything below ─────────────────
     const user = getUser(req);
