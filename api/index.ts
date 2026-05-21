@@ -251,7 +251,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Students
       if (sub === 'students' && req.method === 'GET') {
-        let query = supabase.from('student').select('*, parent(parentFirstName,parentLastName,contactInfo,relationship)');
+        let query = supabase.from('student').select('*, parent(parentFirstName,parentLastName,contactInfo,relationshipStatus)');
         if (user.role === 'student') query = query.eq('studentID', user.profileId);
         else if (user.role === 'parent') query = query.eq('parentID', user.profileId);
         else query = query.order('stuLastName');
@@ -406,6 +406,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (error) throw error;
         return res.json({ success: true, data });
       }
+
+// ADD THESE:
+if (sub === 'tutors' && req.method === 'POST') {
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+  const { tutorFirstName, tutorLastName, specialization, email, password } = req.body;
+  const hash = password ? await bcrypt.hash(password, 12) : null;
+  const { data, error } = await supabase.from('tutor')
+    .insert({ tutorFirstName, tutorLastName, specialization: specialization || '',
+      email: email?.toLowerCase() || null, password_hash: hash, status: 'active' })
+    .select('*').single();
+  if (error) throw error;
+  return res.status(201).json({ success: true, data });
+}
+
+if (sub === 'tutors' && id && req.method === 'PATCH') {
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+  const updates: any = { ...req.body };
+  if (updates.password) {
+    updates.password_hash = await bcrypt.hash(updates.password, 12);
+    delete updates.password;
+  }
+  const { data, error } = await supabase.from('tutor').update(updates).eq('tutorID', id).select().single();
+  if (error) throw error;
+  return res.json({ success: true, data });
+}
+
+if (sub === 'tutors' && id && req.method === 'DELETE') {
+  if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+  const { error } = await supabase.from('tutor').delete().eq('tutorID', id);
+  if (error) throw error;
+  return res.json({ success: true, message: 'Deleted' });
+}
 
       // Parents
       if (sub === 'parents' && req.method === 'GET') {
