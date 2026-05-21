@@ -14,31 +14,42 @@ function isValidStudentStatus(status: unknown): status is (typeof STUDENT_STATUS
   return typeof status === 'string' && STUDENT_STATUSES.includes(status as (typeof STUDENT_STATUSES)[number]);
 }
 
+function stripPwd(row: Record<string, unknown>): Record<string, unknown> {
+  const { encrypted_password: _, ...rest } = row;
+  return rest;
+}
+function stripPwds(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map(stripPwd);
+}
+
 // --- STUDENTS ---
 router.get('/students', async (req: AuthRequest, res: Response) => {
   try {
     const { role, profileId } = req.user!;
 
     if (role === 'student') {
+      if (!profileId) return res.json({ success: true, data: [] });
       const { data, error } = await supabase
         .from('student')
         .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
         .eq('studentID', profileId)
         .single();
       if (error) throw error;
-      return res.json({ success: true, data: [data] });
+      return res.json({ success: true, data: [stripPwd(data as Record<string, unknown>)] });
     }
 
     if (role === 'parent') {
+      if (!profileId) return res.json({ success: true, data: [] });
       const { data, error } = await supabase
         .from('student')
         .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
         .eq('parentID', profileId);
       if (error) throw error;
-      return res.json({ success: true, data });
+      return res.json({ success: true, data: stripPwds((data || []) as Record<string, unknown>[]) });
     }
 
     if (role === 'tutor') {
+      if (!profileId) return res.json({ success: true, data: [] });
       const { data: tutorSubjects } = await supabase
         .from('subject')
         .select('subjectID')
@@ -56,15 +67,17 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
         .in('studentID', studentIds.length > 0 ? studentIds : [0])
         .order('stuLastName');
       if (error) throw error;
-      return res.json({ success: true, data });
+      return res.json({ success: true, data: stripPwds((data || []) as Record<string, unknown>[]) });
     }
+
+    if (role !== 'admin') return res.json({ success: true, data: [] });
 
     const { data, error } = await supabase
       .from('student')
       .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
       .order('stuLastName');
     if (error) throw error;
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: stripPwds((data || []) as Record<string, unknown>[]) });
   } catch (err) {
     console.error('GET /records/students failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -133,7 +146,7 @@ router.post('/students', authorize('admin'), async (req: AuthRequest, res: Respo
       profile_id: data.studentID,
     }).then(() => {});
 
-    return res.status(201).json({ success: true, data });
+    return res.status(201).json({ success: true, data: stripPwd(data as Record<string, unknown>) });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
@@ -170,7 +183,7 @@ router.patch('/students/:id', authorize('admin'), async (req: AuthRequest, res: 
       .select()
       .single();
     if (error) throw error;
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: stripPwd(data as Record<string, unknown>) });
   } catch (err) {
     console.error('PATCH /records/students/:id failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -313,20 +326,26 @@ router.get('/grades', async (req: AuthRequest, res: Response) => {
       .order('gradeID', { ascending: false });
 
     if (role === 'student') {
+      if (!profileId) return res.json({ success: true, data: [] });
       query = query.eq('studentID', profileId).eq('released', true);
     } else if (role === 'parent') {
+      if (!profileId) return res.json({ success: true, data: [] });
       const { data: students } = await supabase
         .from('student').select('studentID').eq('parentID', profileId);
       const ids = (students || []).map((s: { studentID: number }) => s.studentID);
       query = query.in('studentID', ids.length > 0 ? ids : [0]).eq('released', true);
     } else if (role === 'tutor') {
+      if (!profileId) return res.json({ success: true, data: [] });
       query = query.eq('tutorID', profileId);
+    } else if (role !== 'admin') {
+      return res.json({ success: true, data: [] });
     }
 
     const { data, error } = await query;
     if (error) throw error;
     return res.json({ success: true, data });
   } catch (err) {
+    console.error('GET /records/grades failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -406,20 +425,26 @@ router.get('/attendance', async (req: AuthRequest, res: Response) => {
       .order('attendanceDate', { ascending: false });
 
     if (role === 'student') {
+      if (!profileId) return res.json({ success: true, data: [] });
       query = query.eq('studentID', profileId);
     } else if (role === 'parent') {
+      if (!profileId) return res.json({ success: true, data: [] });
       const { data: students } = await supabase
         .from('student').select('studentID').eq('parentID', profileId);
       const ids = (students || []).map((s: { studentID: number }) => s.studentID);
       query = query.in('studentID', ids.length > 0 ? ids : [0]);
     } else if (role === 'tutor') {
+      if (!profileId) return res.json({ success: true, data: [] });
       query = query.eq('tutorID', profileId);
+    } else if (role !== 'admin') {
+      return res.json({ success: true, data: [] });
     }
 
     const { data, error } = await query;
     if (error) throw error;
     return res.json({ success: true, data });
   } catch (err) {
+    console.error('GET /records/attendance failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -495,7 +520,7 @@ router.get('/tutors', async (_req: AuthRequest, res: Response) => {
   try {
     const { data, error } = await supabase.from('tutor').select('*').order('tutorLastName');
     if (error) throw error;
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: stripPwds((data || []) as Record<string, unknown>[]) });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
@@ -549,7 +574,7 @@ router.post('/tutors', authorize('admin'), async (req: AuthRequest, res: Respons
       profile_id: data.tutorID,
     }).then(() => {});
 
-    return res.status(201).json({ success: true, data });
+    return res.status(201).json({ success: true, data: stripPwd(data as Record<string, unknown>) });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
@@ -578,7 +603,7 @@ router.patch('/tutors/:id', authorize('admin'), async (req: AuthRequest, res: Re
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: stripPwd(data as Record<string, unknown>) });
   } catch (err) {
     console.error('PATCH /records/tutors/:id failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -619,7 +644,8 @@ router.get('/parents', authorize('admin'), async (_req: AuthRequest, res: Respon
       .select('*')
       .order('parentLastName');
     if (error) throw error;
-    return res.json({ success: true, data: sortParentsByApproval(data || []) });
+    const safe = stripPwds((data || []) as Record<string, unknown>[]);
+    return res.json({ success: true, data: sortParentsByApproval(safe as Parameters<typeof sortParentsByApproval>[0]) });
   } catch (err) {
     console.error('GET /records/parents failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -651,7 +677,7 @@ router.get('/parents/me', async (req: AuthRequest, res: Response) => {
           .eq('parentID', studentRow.parentID)
           .single();
         if (pErr && pErr.code !== 'PGRST116') throw pErr;
-        if (parentByStudentParentID) return res.json({ success: true, data: parentByStudentParentID });
+        if (parentByStudentParentID) return res.json({ success: true, data: stripPwd(parentByStudentParentID as Record<string, unknown>) });
       }
 
       // Fallback: parent record that has studentID pointing to this student
@@ -662,7 +688,7 @@ router.get('/parents/me', async (req: AuthRequest, res: Response) => {
         .single();
 
       if (error && error.code !== 'PGRST116') throw error;
-      return res.json({ success: true, data: data || null });
+      return res.json({ success: true, data: data ? stripPwd(data as Record<string, unknown>) : null });
     }
 
     if (role === 'parent') {
@@ -673,7 +699,7 @@ router.get('/parents/me', async (req: AuthRequest, res: Response) => {
         .single();
 
       if (error && error.code !== 'PGRST116') throw error;
-      return res.json({ success: true, data: data || null });
+      return res.json({ success: true, data: data ? stripPwd(data as Record<string, unknown>) : null });
     }
 
     const { data, error } = await supabase
@@ -682,7 +708,7 @@ router.get('/parents/me', async (req: AuthRequest, res: Response) => {
       .order('parentLastName');
 
     if (error) throw error;
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: stripPwds((data || []) as Record<string, unknown>[]) });
   } catch (err) {
     console.error('GET /records/parents/me failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -703,7 +729,7 @@ router.get('/parents/lookup', async (req: AuthRequest, res: Response) => {
       .single();
 
     if (error && error.code !== 'PGRST116') throw error;
-    return res.json({ success: true, data: data || null });
+    return res.json({ success: true, data: data ? stripPwd(data as Record<string, unknown>) : null });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
@@ -882,10 +908,10 @@ router.post('/parents', authorize('admin'), async (req: AuthRequest, res: Respon
       profile_id: data.parentID,
     }).then(() => {});
 
-    return res.status(201).json({ success: true, data, message: 'Parent request submitted' });
+    return res.status(201).json({ success: true, data: stripPwd(data as Record<string, unknown>), message: 'Parent request submitted' });
   } catch (err) {
     console.error('POST /records/parents failed', err);
-    return res.status(500).json({ success: false, error: 'Server error' });
+    return res.status(500).json({ success: false, error: (err as { message?: string })?.message || 'Server error' });
   }
 });
 
@@ -964,7 +990,7 @@ router.post('/parents/me', authorize('student'), async (req: AuthRequest, res: R
         .eq('studentID', Number(studentID));
       if (studentUpdateError) throw studentUpdateError;
     }
-    return res.status(existingParent ? 200 : 201).json({ success: true, data, message: 'Parent request submitted' });
+    return res.status(existingParent ? 200 : 201).json({ success: true, data: stripPwd(data as Record<string, unknown>), message: 'Parent request submitted' });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
@@ -992,24 +1018,28 @@ router.patch('/parents/:id', authorize('admin'), async (req: AuthRequest, res: R
     if (error) throw error;
 
     if (Array.isArray(studentIDs)) {
-      const newIDs = studentIDs.map(Number).filter(Boolean);
+      try {
+        const newIDs = studentIDs.map(Number).filter(Boolean);
 
-      const { data: currentStudents } = await supabase
-        .from('student').select('studentID').eq('parentID', parentId);
-      const currentIDs = (currentStudents || []).map((s: { studentID: number }) => s.studentID);
+        const { data: currentStudents } = await supabase
+          .from('student').select('studentID').eq('parentID', parentId);
+        const currentIDs = (currentStudents || []).map((s: { studentID: number }) => s.studentID);
 
-      const toUnlink = currentIDs.filter((id) => !newIDs.includes(id));
-      if (toUnlink.length > 0) {
-        await supabase.from('student').update({ parentID: null }).in('studentID', toUnlink);
+        const toUnlink = currentIDs.filter((id: number) => !newIDs.includes(id));
+        if (toUnlink.length > 0) {
+          await supabase.from('student').update({ parentID: null }).in('studentID', toUnlink);
+        }
+        if (newIDs.length > 0) {
+          await supabase.from('student').update({ parentID: parentId }).in('studentID', newIDs);
+        }
+        const primaryStudentID = newIDs[0] ?? null;
+        await supabase.from('parent').update({ studentID: primaryStudentID }).eq('parentID', parentId);
+      } catch (linkErr) {
+        console.error('PATCH /records/parents/:id student linking failed (parentID column may be missing):', linkErr);
       }
-      if (newIDs.length > 0) {
-        await supabase.from('student').update({ parentID: parentId }).in('studentID', newIDs);
-      }
-      const primaryStudentID = newIDs[0] ?? null;
-      await supabase.from('parent').update({ studentID: primaryStudentID }).eq('parentID', parentId);
     }
 
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: data ? stripPwd(data as Record<string, unknown>) : data });
   } catch (err) {
     console.error('PATCH /records/parents/:id failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });

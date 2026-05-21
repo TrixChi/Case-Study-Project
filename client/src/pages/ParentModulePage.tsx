@@ -510,7 +510,6 @@ export default function ParentModulePage() {
                     !editForm.parentFirstName ||
                     !editForm.parentLastName ||
                     !editForm.contactInfo ||
-                    !editForm.relationship ||
                     updateMutation.isPending
                   }
                   className="btn-primary"

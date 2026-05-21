@@ -357,11 +357,11 @@ export default function StudentsPage() {
             })} placeholder="Dela Cruz" />
           </div>
           <div>
-            <label className="label">Contact Info</label>
+            <label className="label">Contact Info *</label>
             <input className="input" value={form.stuContactInfo} onChange={e => setForm(f => ({ ...f, stuContactInfo: e.target.value }))} placeholder="09XXXXXXXXX" />
           </div>
           <div className="col-span-2">
-            <label className="label">Address</label>
+            <label className="label">Address *</label>
             <input className="input" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Street, Barangay, City" />
           </div>
           <div className="col-span-2">
@@ -406,9 +406,10 @@ export default function StudentsPage() {
             <button
               onClick={handleSubmit}
               disabled={
-                !form.email ||
                 !form.stuFirstName ||
                 !form.stuLastName ||
+                !form.stuContactInfo ||
+                !form.address ||
                 createMutation.isPending ||
                 updateMutation.isPending
               }

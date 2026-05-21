@@ -107,7 +107,7 @@ export default function TutorsPage() {
   const openEdit = (tutor: Tutor) => {
     setEditing(tutor);
     setForm({
-      email: tutor.email || '',
+      email: tutor.email || generateTutorEmail(tutor.tutorFirstName, tutor.tutorLastName),
       password: '',
       tutorFirstName: tutor.tutorFirstName,
       tutorLastName: tutor.tutorLastName,

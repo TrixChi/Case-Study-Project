@@ -87,8 +87,9 @@ router.post('/', authorize('student'), async (req: AuthRequest, res: Response) =
       message: `${created.length} enlistment(s) submitted${skipped.length > 0 ? `, ${skipped.length} already enlisted` : ''}`,
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, error: 'Server error' });
+    console.error('POST /api/enlistment failed:', err);
+    const msg = (err as { message?: string })?.message || 'Server error';
+    return res.status(500).json({ success: false, error: msg });
   }
 });
 
