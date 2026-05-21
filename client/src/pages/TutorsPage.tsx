@@ -12,9 +12,9 @@ import { TUTOR_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
 
 const generateTutorEmail = (firstName: string, lastName: string) => {
-  const initial = firstName.trim()[0]?.toLowerCase() || '';
+  const initials = firstName.trim().toLowerCase().split(/\s+/).map(w => w[0] || '').join('');
   const last = lastName.trim().toLowerCase().replace(/\s+/g, '');
-  return `${initial}${last}@abclearning.com`;
+  return `${initials}${last}@tutor.abclearning.com`;
 };
 
 const emptyForm = {

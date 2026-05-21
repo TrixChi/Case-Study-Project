@@ -26,9 +26,9 @@ const statusOptions = [
 ] as const;
 
 const generateStudentEmail = (firstName: string, lastName: string) => {
-  return `${lastName.trim().toLowerCase()}.${firstName
-    .trim()
-    .toLowerCase()}@abclearning.com`;
+  const first = firstName.trim().toLowerCase().replace(/\s+/g, '');
+  const last = lastName.trim().toLowerCase().replace(/\s+/g, '');
+  return `${last}.${first}@student.abclearning.com`;
 };
 
 

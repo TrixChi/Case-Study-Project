@@ -20,9 +20,9 @@ const DEFAULT_PASSWORD = 'ABClearning2026';
 const RELATIONSHIP_OPTIONS = ['guardian', 'mother', 'father'] as const;
 
 const generateParentEmail = (firstName: string, lastName: string) => {
-  return `${lastName.trim().toLowerCase()}.${firstName
-    .trim()
-    .toLowerCase()}.parent@abclearning.com`;
+  const first = firstName.trim().toLowerCase().replace(/\s+/g, '');
+  const last = lastName.trim().toLowerCase().replace(/\s+/g, '');
+  return `${last}.${first}@guardian.abclearning.com`;
 };
 
 const getApprovalState = (parent?: Parent | null) => {
