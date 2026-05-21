@@ -22,7 +22,7 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
     if (role === 'student') {
       const { data, error } = await supabase
         .from('student')
-        .select('*')
+        .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
         .eq('studentID', profileId)
         .single();
       if (error) throw error;
@@ -32,7 +32,7 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
     if (role === 'parent') {
       const { data, error } = await supabase
         .from('student')
-        .select('*')
+        .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
         .eq('parentID', profileId);
       if (error) throw error;
       return res.json({ success: true, data });
@@ -40,7 +40,7 @@ router.get('/students', async (req: AuthRequest, res: Response) => {
 
     const { data, error } = await supabase
       .from('student')
-      .select('*')
+      .select('*, parent(parentID, parentFirstName, parentLastName, relationship)')
       .order('stuLastName');
     if (error) throw error;
     return res.json({ success: true, data });
@@ -72,14 +72,24 @@ router.post('/students', authorize('admin'), async (req: AuthRequest, res: Respo
       return res.status(400).json({ success: false, error: 'Invalid status' });
     }
 
+    const { data: existingStudent } = await supabase
+      .from('student')
+      .select('studentID')
+      .ilike('email', email.toLowerCase())
+      .maybeSingle();
+    if (existingStudent) {
+      return res.status(409).json({ success: false, error: 'A student account with this email already exists' });
+    }
+
+    const normalizedEmail = email.toLowerCase();
     const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
     const { data, error } = await supabase
       .from('student')
       .insert({
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         encrypted_password: passwordHash,
         stuFirstName,
-        stuMiddleName: stuMiddleName || null,
+        stuMiddleName: stuMiddleName || '',
         stuLastName,
         stuContactInfo,
         address,
@@ -89,6 +99,16 @@ router.post('/students', authorize('admin'), async (req: AuthRequest, res: Respo
       .select()
       .single();
     if (error) throw error;
+
+    await supabase.from('app_users').insert({
+      email: normalizedEmail,
+      password_hash: passwordHash,
+      role: 'student',
+      first_name: stuFirstName,
+      last_name: stuLastName,
+      profile_id: data.studentID,
+    });
+
     return res.status(201).json({ success: true, data });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -464,12 +484,22 @@ router.post('/tutors', authorize('admin'), async (req: AuthRequest, res: Respons
       return res.status(400).json({ success: false, error: 'Invalid tutor status' });
     }
 
+    const { data: existingTutor } = await supabase
+      .from('tutor')
+      .select('tutorID')
+      .ilike('email', email.toLowerCase())
+      .maybeSingle();
+    if (existingTutor) {
+      return res.status(409).json({ success: false, error: 'A tutor account with this email already exists' });
+    }
+
+    const normalizedEmail = email.toLowerCase();
     const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
 
     const { data, error } = await supabase
       .from('tutor')
       .insert({
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         encrypted_password: passwordHash,
         tutorFirstName,
         tutorLastName,
@@ -480,6 +510,16 @@ router.post('/tutors', authorize('admin'), async (req: AuthRequest, res: Respons
       .single();
 
     if (error) throw error;
+
+    await supabase.from('app_users').insert({
+      email: normalizedEmail,
+      password_hash: passwordHash,
+      role: 'tutor',
+      first_name: tutorFirstName,
+      last_name: tutorLastName,
+      profile_id: data.tutorID,
+    });
+
     return res.status(201).json({ success: true, data });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -565,6 +605,26 @@ router.get('/parents/me', async (req: AuthRequest, res: Response) => {
     }
 
     if (role === 'student') {
+      if (!profileId) return res.json({ success: true, data: null });
+
+      // Resolve parent via the student's parentID (set by admin)
+      const { data: studentRow } = await supabase
+        .from('student')
+        .select('parentID')
+        .eq('studentID', profileId)
+        .single();
+
+      if (studentRow?.parentID) {
+        const { data: parentByStudentParentID, error: pErr } = await supabase
+          .from('parent')
+          .select('*')
+          .eq('parentID', studentRow.parentID)
+          .single();
+        if (pErr && pErr.code !== 'PGRST116') throw pErr;
+        if (parentByStudentParentID) return res.json({ success: true, data: parentByStudentParentID });
+      }
+
+      // Fallback: parent record that has studentID pointing to this student
       const { data, error } = await supabase
         .from('parent')
         .select('*')
@@ -623,13 +683,33 @@ router.get('/parents/lookup', async (req: AuthRequest, res: Response) => {
 router.get('/parents/:id/students', authorize('admin'), async (req: AuthRequest, res: Response) => {
   try {
     const parentId = Number(req.params.id);
-    const { data, error } = await supabase
-      .from('student')
-      .select('studentID, stuFirstName, stuLastName, status')
-      .eq('parentID', parentId)
-      .order('stuLastName');
+
+    const [{ data: byParentID, error }, { data: parentRecord }] = await Promise.all([
+      supabase
+        .from('student')
+        .select('studentID, stuFirstName, stuLastName, status')
+        .eq('parentID', parentId)
+        .order('stuLastName'),
+      supabase.from('parent').select('studentID').eq('parentID', parentId).single(),
+    ]);
+
     if (error) throw error;
-    return res.json({ success: true, data });
+
+    const students = [...(byParentID || [])];
+
+    if (parentRecord?.studentID) {
+      const alreadyIncluded = students.some((s) => s.studentID === parentRecord.studentID);
+      if (!alreadyIncluded) {
+        const { data: extraStudent } = await supabase
+          .from('student')
+          .select('studentID, stuFirstName, stuLastName, status')
+          .eq('studentID', parentRecord.studentID)
+          .single();
+        if (extraStudent) students.push(extraStudent);
+      }
+    }
+
+    return res.json({ success: true, data: students });
   } catch (err) {
     console.error('GET /records/parents/:id/students failed', err);
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -743,7 +823,7 @@ router.post('/parents', authorize('admin'), async (req: AuthRequest, res: Respon
         email: normalizedEmail,
         encrypted_password: passwordHash,
         parentFirstName,
-        parentMiddleName: parentMiddleName || null,
+        parentMiddleName: parentMiddleName || '',
         parentLastName,
         contactInfo,
         relationshipStatus: relationship,
@@ -762,6 +842,16 @@ router.post('/parents', authorize('admin'), async (req: AuthRequest, res: Respon
         .eq('studentID', Number(studentID));
       if (studentUpdateError) throw studentUpdateError;
     }
+
+    await supabase.from('app_users').insert({
+      email: normalizedEmail,
+      password_hash: passwordHash,
+      role: 'parent',
+      first_name: parentFirstName,
+      last_name: parentLastName,
+      profile_id: data.parentID,
+    });
+
     return res.status(201).json({ success: true, data, message: 'Parent request submitted' });
   } catch (err) {
     console.error('POST /records/parents failed', err);

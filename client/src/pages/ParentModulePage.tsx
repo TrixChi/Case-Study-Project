@@ -210,9 +210,12 @@ export default function ParentModulePage() {
                           <p className="text-sm text-surface-500">No students linked</p>
                         ) : (
                           <ul className="list-disc pl-5 text-sm text-surface-700">
-                            {(parentStudents[parent.parentID] || []).map((s) => (
-                              <li key={s.studentID}>#{s.studentID} — {s.stuFirstName} {s.stuLastName} ({s.status})</li>
-                            ))}
+                            {(parentStudents[parent.parentID] || []).map((s) => {
+                              const name = `${s.stuFirstName || ''} ${s.stuLastName || ''}`.trim() || 'Unnamed Student';
+                              return (
+                                <li key={s.studentID}>#{s.studentID} — {name}{s.status ? ` (${s.status})` : ''}</li>
+                              );
+                            })}
                           </ul>
                         )}
                       </div>

@@ -11,6 +11,12 @@ import StatusSelector from '../components/StatusSelector';
 import { TUTOR_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
 
+const generateTutorEmail = (firstName: string, lastName: string) => {
+  const initial = firstName.trim()[0]?.toLowerCase() || '';
+  const last = lastName.trim().toLowerCase().replace(/\s+/g, '');
+  return `${initial}${last}@abclearning.com`;
+};
+
 const emptyForm = {
   email: '',
   password: '',
@@ -206,8 +212,11 @@ export default function TutorsPage() {
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Tutor' : 'Add Tutor'} size="lg">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">Email *</label>
-            <input className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="tutor@ABClearning.com" />
+            <label className="label">Email</label>
+            <input className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Auto-generated from name" />
+            {!editing && form.tutorFirstName && form.tutorLastName && (
+              <p className="text-xs text-surface-400 mt-1">Auto-generated — you can override it above</p>
+            )}
           </div>
           <div>
             <label className="label">Password *</label>
@@ -215,11 +224,19 @@ export default function TutorsPage() {
           </div>
           <div>
             <label className="label">First Name *</label>
-            <input className="input" value={form.tutorFirstName} onChange={e => setForm(f => ({ ...f, tutorFirstName: e.target.value }))} placeholder="Juan" />
+            <input className="input" value={form.tutorFirstName} onChange={e => setForm(f => {
+              const tutorFirstName = e.target.value;
+              const email = tutorFirstName && f.tutorLastName ? generateTutorEmail(tutorFirstName, f.tutorLastName) : f.email;
+              return { ...f, tutorFirstName, email };
+            })} placeholder="Juan" />
           </div>
           <div>
             <label className="label">Last Name *</label>
-            <input className="input" value={form.tutorLastName} onChange={e => setForm(f => ({ ...f, tutorLastName: e.target.value }))} placeholder="Dela Cruz" />
+            <input className="input" value={form.tutorLastName} onChange={e => setForm(f => {
+              const tutorLastName = e.target.value;
+              const email = f.tutorFirstName && tutorLastName ? generateTutorEmail(f.tutorFirstName, tutorLastName) : f.email;
+              return { ...f, tutorLastName, email };
+            })} placeholder="Dela Cruz" />
           </div>
           <div className="col-span-2">
             <label className="label">Specialization *</label>

@@ -212,7 +212,9 @@ export default function StudentsPage() {
                       </span>
                     </td>
                     <td className="table-cell text-surface-500">
-                      {s.parentID ? parentNameById[s.parentID] || `Parent #${s.parentID}` : '—'}
+                      {s.parent
+                        ? `${s.parent.parentFirstName} ${s.parent.parentLastName}`.trim()
+                        : s.parentID ? parentNameById[s.parentID] || `Parent #${s.parentID}` : '—'}
                     </td>
                     {isAdmin && (
                       <td className="table-cell text-right">

@@ -99,8 +99,16 @@ export default function DashboardPage() {
     enabled: user?.role === 'admin',
   });
 
-  const pendingEnrollments = enrollments?.filter(e => e.status === 'pending').length || 0;
-  const approvedEnrollments = enrollments?.filter(e => e.status === 'approved').length || 0;
+  const filteredEnrollments = user?.role === 'parent' && selectedStudentId
+    ? enrollments?.filter(e => e.studentID === selectedStudentId)
+    : enrollments;
+
+  const pendingEnrollments = filteredEnrollments?.filter(e => e.status === 'pending').length || 0;
+  const approvedEnrollments = filteredEnrollments?.filter(e => e.status === 'approved').length || 0;
+
+  const filteredGrades = user?.role === 'parent' && selectedStudentId
+    ? grades?.filter(g => g.studentID === selectedStudentId)
+    : grades;
 
   const summaryTotals = feeSummary?.totals || feeSummary;
   const totalPayments = summaryTotals?.totalPaid || payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
@@ -111,8 +119,8 @@ export default function DashboardPage() {
         const p = parentDashboard?.students?.find((s: any) => s.studentID === selectedStudentId);
         return p ? String(p.avgGrade ?? '—') : '—';
       })()
-    : grades && grades.length > 0
-      ? (grades.reduce((sum, g) => sum + Number(g.gradeValue), 0) / grades.length).toFixed(1)
+    : filteredGrades && filteredGrades.length > 0
+      ? (filteredGrades.reduce((sum, g) => sum + Number(g.gradeValue), 0) / filteredGrades.length).toFixed(1)
       : '—';
 
   const presentCount = user?.role === 'parent'
@@ -137,6 +145,27 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Parent: student selector */}
+      {user?.role === 'parent' && parentDashboard?.students?.length > 1 && (
+        <div className="card p-4 flex items-center gap-4">
+          <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+            <Users className="w-4 h-4 text-brand-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-surface-500 uppercase tracking-wide mb-1">Viewing stats for</p>
+            <select
+              className="input"
+              value={selectedStudentId ?? ''}
+              onChange={(e) => setSelectedStudentId(Number(e.target.value))}
+            >
+              {(parentDashboard.students || []).map((s: any) => (
+                <option key={s.studentID} value={s.studentID}>{s.stuFirstName} {s.stuLastName}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {user?.role === 'admin' && (
@@ -147,23 +176,15 @@ export default function DashboardPage() {
             color="bg-blue-50"
           />
         )}
-        {user?.role === 'parent' && (
-          <div className="card p-5">
-            <label className="label">Select student</label>
-            <select className="input" value={selectedStudentId ?? ''} onChange={(e) => setSelectedStudentId(Number(e.target.value))}>
-              {(parentDashboard?.students || []).map((s: any) => (
-                <option key={s.studentID} value={s.studentID}>{s.stuFirstName} {s.stuLastName}</option>
-              ))}
-            </select>
-          </div>
+        {user?.role !== 'tutor' && (
+          <StatCard
+            title="Enrollments"
+            value={approvedEnrollments}
+            icon={<ClipboardList className="w-5 h-5 text-emerald-600" />}
+            color="bg-emerald-50"
+            sub={pendingEnrollments > 0 ? `${pendingEnrollments} pending` : undefined}
+          />
         )}
-        <StatCard
-          title="Enrollments"
-          value={approvedEnrollments}
-          icon={<ClipboardList className="w-5 h-5 text-emerald-600" />}
-          color="bg-emerald-50"
-          sub={pendingEnrollments > 0 ? `${pendingEnrollments} pending` : undefined}
-        />
         {user?.role !== 'tutor' && (
           <StatCard
             title="Total Payments"
@@ -187,7 +208,7 @@ export default function DashboardPage() {
           value={avgGrade}
           icon={<GraduationCap className="w-5 h-5 text-purple-600" />}
           color="bg-purple-50"
-          sub={`${grades?.length || 0} records`}
+          sub={`${filteredGrades?.length || 0} records`}
         />
         <StatCard
           title="Attendance Rate"
@@ -252,13 +273,13 @@ export default function DashboardPage() {
 
       {/* Recent activity tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent enrollments */}
-        <div className="card overflow-hidden">
+        {/* Recent enrollments — hidden for tutors */}
+        {user?.role !== 'tutor' && <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-surface-100">
             <h3 className="section-title text-base">Recent Enrollments</h3>
           </div>
           <div className="divide-y divide-surface-50">
-            {enrollments?.slice(0, 5).map((e) => (
+            {filteredEnrollments?.slice(0, 5).map((e) => (
               <div key={e.enrollmentID} className="flex items-center justify-between px-5 py-3">
                 <div>
                   <p className="text-sm font-medium text-surface-800">
@@ -275,7 +296,7 @@ export default function DashboardPage() {
               <p className="px-5 py-8 text-sm text-surface-400 text-center">No enrollment records</p>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* Recent grades */}
         <div className="card overflow-hidden">
@@ -283,7 +304,7 @@ export default function DashboardPage() {
             <h3 className="section-title text-base">Recent Grades</h3>
           </div>
           <div className="divide-y divide-surface-50">
-            {grades?.slice(0, 5).map((g) => (
+            {filteredGrades?.slice(0, 5).map((g) => (
               <div key={g.gradeID} className="flex items-center justify-between px-5 py-3">
                 <div>
                   <p className="text-sm font-medium text-surface-800">

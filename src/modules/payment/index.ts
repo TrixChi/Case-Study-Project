@@ -124,8 +124,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .order('paymentDate', { ascending: false });
 
     if (role === 'student') {
+      if (!profileId) return res.status(403).json({ success: false, error: 'No student profile linked to this account' });
       query = query.eq('studentID', profileId);
     } else if (role === 'parent') {
+      if (!profileId) return res.status(403).json({ success: false, error: 'No parent profile linked to this account' });
       const { data: students } = await supabase
         .from('student')
         .select('studentID')
@@ -171,8 +173,10 @@ router.get('/summary', async (req: AuthRequest, res: Response) => {
     let studentIds: number[] = [];
 
     if (role === 'student') {
+      if (!profileId) return res.status(403).json({ success: false, error: 'No student profile linked to this account' });
       studentIds = [profileId];
     } else if (role === 'parent') {
+      if (!profileId) return res.status(403).json({ success: false, error: 'No parent profile linked to this account' });
       const { data: students } = await supabase
         .from('student')
         .select('studentID')

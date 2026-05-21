@@ -22,12 +22,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (role === 'student') {
       query = query.eq('studentID', profileId);
     } else if (role === 'parent') {
-      // Get linked student IDs
-      const { data: students } = await supabase
-        .from('student')
-        .select('studentID')
-        .eq('parentID', profileId);
-      const ids = (students || []).map((s: { studentID: number }) => s.studentID);
+      // Get linked student IDs (both directions: student.parentID and parent.studentID)
+      const [{ data: byParentID }, { data: parentRecord }] = await Promise.all([
+        supabase.from('student').select('studentID').eq('parentID', profileId),
+        supabase.from('parent').select('studentID').eq('parentID', profileId).single(),
+      ]);
+      const idSet = new Set((byParentID || []).map((s: { studentID: number }) => s.studentID));
+      if (parentRecord?.studentID) idSet.add(parentRecord.studentID);
+      const ids = [...idSet];
       query = query.in('studentID', ids.length > 0 ? ids : [0]);
     }
     // admins and tutors see all
@@ -56,40 +58,51 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/enrollment - admin creates enrollment
+// POST /api/enrollment - admin creates enrollment (supports subjectIDs array)
 router.post('/', authorize('admin'), async (req: AuthRequest, res: Response) => {
   try {
-    const { studentID, subjectID } = req.body;
-    if (!studentID || !subjectID) {
-      return res.status(400).json({ success: false, error: 'studentID and subjectID required' });
+    const { studentID, subjectIDs, subjectID } = req.body;
+    const ids: number[] = subjectIDs?.length > 0
+      ? subjectIDs.map(Number)
+      : subjectID ? [Number(subjectID)] : [];
+
+    if (!studentID || ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'studentID and at least one subjectID required' });
     }
 
-    // Check duplicate
-    const { data: existing } = await supabase
-      .from('enrollment')
-      .select('enrollmentID')
-      .eq('studentID', studentID)
-      .eq('subjectID', subjectID)
-      .eq('status', 'approved')
-      .single();
+    const enrollmentDate = new Date().toISOString();
+    const created = [];
+    const skipped = [];
 
-    if (existing) {
-      return res.status(409).json({ success: false, error: 'Student already enrolled in this subject' });
+    for (const sid of ids) {
+      const { data: existing } = await supabase
+        .from('enrollment')
+        .select('enrollmentID')
+        .eq('studentID', studentID)
+        .eq('subjectID', sid)
+        .eq('status', 'approved')
+        .single();
+
+      if (existing) {
+        skipped.push(sid);
+        continue;
+      }
+
+      const { data, error } = await supabase
+        .from('enrollment')
+        .insert({ studentID, subjectID: sid, enrollmentDate, status: 'pending' })
+        .select(`*, student(*), subject(*, tutor(*))`)
+        .single();
+
+      if (error) throw error;
+      created.push(data);
     }
 
-    const { data, error } = await supabase
-      .from('enrollment')
-      .insert({
-        studentID,
-        subjectID,
-        enrollmentDate: new Date().toISOString(),
-        status: 'pending',
-      })
-      .select(`*, student(*), subject(*, tutor(*))`)
-      .single();
+    if (created.length === 0) {
+      return res.status(409).json({ success: false, error: 'Student is already enrolled in all selected subjects' });
+    }
 
-    if (error) throw error;
-    return res.status(201).json({ success: true, data, message: 'Enrollment created' });
+    return res.status(201).json({ success: true, data: created, message: `${created.length} enrollment(s) created` });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, error: 'Server error' });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Check, X, Trash2, Search, Filter } from 'lucide-react';
+import { Plus, Check, X, Trash2, Search, Filter, BookOpen, User, Calendar, Hash, AlertCircle } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Enrollment, Student, Subject } from '../types';
@@ -9,10 +9,49 @@ import ConfirmModal from '../components/ConfirmModal';
 import { ENROLLMENT_STATUS_BADGES } from '../styles/design';
 import toast from 'react-hot-toast';
 
+function SubjectCard({ enrollment: e }: { enrollment: Enrollment }) {
+	const tutor = e.subject?.tutor as { tutorFirstName: string; tutorLastName: string } | undefined;
+	return (
+		<div className="card p-4 flex flex-col gap-3">
+			<div className="flex items-start justify-between gap-2">
+				<div className="flex items-center gap-2 min-w-0">
+					<div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+						<BookOpen className="w-4 h-4 text-brand-500" />
+					</div>
+					<h3 className="font-semibold text-surface-800 truncate">{e.subject?.subjectName}</h3>
+				</div>
+				<span className={`badge shrink-0 ${ENROLLMENT_STATUS_BADGES[e.status] || 'badge-gray'}`}>{e.status}</span>
+			</div>
+			{e.subject?.description && (
+				<p className="text-xs text-surface-500 line-clamp-2">{e.subject.description}</p>
+			)}
+			<div className="grid grid-cols-2 gap-2 text-xs text-surface-500">
+				<div className="flex items-center gap-1.5">
+					<Hash className="w-3.5 h-3.5 shrink-0" />
+					<span>{e.subject?.units ?? '—'} units</span>
+				</div>
+				<div className="flex items-center gap-1.5">
+					<span className="font-medium text-surface-700">₱{Number(e.subject?.fee || 0).toLocaleString()}</span>
+				</div>
+				<div className="flex items-center gap-1.5">
+					<User className="w-3.5 h-3.5 shrink-0" />
+					<span className="truncate">{tutor ? `${tutor.tutorFirstName} ${tutor.tutorLastName}` : 'No tutor assigned'}</span>
+				</div>
+				<div className="flex items-center gap-1.5">
+					<Calendar className="w-3.5 h-3.5 shrink-0" />
+					<span>{new Date(e.enrollmentDate).toLocaleDateString()}</span>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export default function EnrollmentPage() {
 	const { user } = useAuthStore();
 	const qc = useQueryClient();
 	const isAdmin = user?.role === 'admin';
+	const isStudent = user?.role === 'student';
+	const isParent = user?.role === 'parent';
 
 	const [search, setSearch] = useState('');
 	const [filterStatus, setFilterStatus] = useState('all');
@@ -44,6 +83,20 @@ export default function EnrollmentPage() {
 			return res.data.data as Subject[];
 		},
 		enabled: isAdmin,
+	});
+
+	const { data: paymentSummary } = useQuery({
+		queryKey: ['paymentSummary'],
+		queryFn: async () => {
+			const res = await api.get('/payment/summary');
+			return res.data.data as {
+				missingFees: number;
+				totalFees: number;
+				totalPaid: number;
+				totals?: { missingFees: number; totalFees: number; totalPaid: number };
+			};
+		},
+		enabled: isStudent || isParent,
 	});
 
 	const selectedSubjectCount = form.subjectIDs.length;
@@ -94,6 +147,143 @@ export default function EnrollmentPage() {
 		const matchStatus = filterStatus === 'all' || e.status === filterStatus;
 		return matchSearch && matchStatus;
 	});
+
+	if (isStudent) {
+		const approved = enrollments.filter(e => e.status === 'approved');
+		const pending = enrollments.filter(e => e.status === 'pending');
+		const rejected = enrollments.filter(e => e.status === 'rejected');
+		const totalUnits = approved.reduce((sum, e) => sum + Number(e.subject?.units || 0), 0);
+		const totalFee = approved.reduce((sum, e) => sum + Number(e.subject?.fee || 0), 0);
+		const missingFees = paymentSummary?.missingFees ?? 0;
+
+		return (
+			<div className="space-y-6 animate-fade-in">
+				<div>
+					<h1 className="page-title">My Enrolled Subjects</h1>
+					<p className="text-sm text-surface-500 mt-1">
+						{approved.length} active subject{approved.length !== 1 ? 's' : ''} · {totalUnits} units · ₱{totalFee.toLocaleString()}
+					</p>
+				</div>
+
+				{missingFees > 0 && (
+					<div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+						<AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+						<div>
+							<p className="font-semibold text-amber-800">Outstanding Balance</p>
+							<p className="text-sm text-amber-700 mt-0.5">
+								You have an outstanding balance of <span className="font-semibold">₱{missingFees.toLocaleString()}</span>. Please coordinate with the admin to settle your fees.
+							</p>
+						</div>
+					</div>
+				)}
+
+				{isLoading ? (
+					<div className="flex items-center justify-center py-16">
+						<div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+					</div>
+				) : enrollments.length === 0 ? (
+					<div className="card text-center py-16 text-surface-400">
+						<BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
+						<p className="text-sm">You are not enrolled in any subjects yet.</p>
+					</div>
+				) : (
+					<div className="space-y-6">
+						{approved.length > 0 && (
+							<div className="space-y-3">
+								<h2 className="text-sm font-semibold text-surface-500 uppercase tracking-wider">Active</h2>
+								<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+									{approved.map(e => <SubjectCard key={e.enrollmentID} enrollment={e} />)}
+								</div>
+							</div>
+						)}
+						{pending.length > 0 && (
+							<div className="space-y-3">
+								<h2 className="text-sm font-semibold text-surface-500 uppercase tracking-wider">Pending Approval</h2>
+								<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+									{pending.map(e => <SubjectCard key={e.enrollmentID} enrollment={e} />)}
+								</div>
+							</div>
+						)}
+						{rejected.length > 0 && (
+							<div className="space-y-3">
+								<h2 className="text-sm font-semibold text-surface-500 uppercase tracking-wider">Rejected</h2>
+								<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+									{rejected.map(e => <SubjectCard key={e.enrollmentID} enrollment={e} />)}
+								</div>
+							</div>
+						)}
+					</div>
+				)}
+			</div>
+		);
+	}
+
+	if (isParent) {
+		const missingFees = paymentSummary?.totals?.missingFees ?? paymentSummary?.missingFees ?? 0;
+		return (
+			<div className="space-y-6 animate-fade-in">
+				<div>
+					<h1 className="page-title">Enrollment</h1>
+					<p className="text-sm text-surface-500 mt-1">{enrollments.length} enrollment records for your student(s)</p>
+				</div>
+
+				{missingFees > 0 && (
+					<div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+						<AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+						<div>
+							<p className="font-semibold text-amber-800">Outstanding Balance</p>
+							<p className="text-sm text-amber-700 mt-0.5">
+								Total outstanding balance: <span className="font-semibold">₱{missingFees.toLocaleString()}</span>. Please coordinate with the admin to settle fees.
+							</p>
+						</div>
+					</div>
+				)}
+
+				<div className="card overflow-hidden">
+					{isLoading ? (
+						<div className="flex items-center justify-center py-16">
+							<div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+						</div>
+					) : enrollments.length === 0 ? (
+						<div className="text-center py-16 text-surface-400">
+							<p className="text-sm">No enrollment records found</p>
+						</div>
+					) : (
+						<div className="overflow-x-auto">
+							<table className="w-full">
+								<thead>
+									<tr className="table-header border-b border-surface-100">
+										<th className="table-cell text-left">Student</th>
+										<th className="table-cell text-left">Subject</th>
+										<th className="table-cell text-left">Tutor</th>
+										<th className="table-cell text-left">Date</th>
+										<th className="table-cell text-left">Status</th>
+									</tr>
+								</thead>
+								<tbody className="divide-y divide-surface-50">
+									{enrollments.map((e) => (
+										<tr key={e.enrollmentID} className="table-row-hover">
+											<td className="table-cell font-medium">{e.student?.stuFirstName} {e.student?.stuLastName}</td>
+											<td className="table-cell">{e.subject?.subjectName}</td>
+											<td className="table-cell text-surface-500">
+												{e.subject?.tutor
+													? `${(e.subject.tutor as { tutorFirstName: string; tutorLastName: string }).tutorFirstName} ${(e.subject.tutor as { tutorFirstName: string; tutorLastName: string }).tutorLastName}`
+													: '—'}
+											</td>
+											<td className="table-cell text-surface-500">{new Date(e.enrollmentDate).toLocaleDateString()}</td>
+											<td className="table-cell">
+												<span className={`badge ${ENROLLMENT_STATUS_BADGES[e.status] || 'badge-gray'}`}>{e.status}</span>
+											</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
+					)}
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="space-y-6 animate-fade-in">
@@ -265,6 +455,11 @@ export default function EnrollmentPage() {
 										<div>
 											<p className="font-medium text-surface-800">{subject.subjectName}</p>
 											<p className="text-xs text-surface-500">{subject.units} units · ₱{Number(subject.fee || 0).toLocaleString()}</p>
+											<p className="text-xs text-surface-400 mt-0.5">
+												{subject.tutor
+													? `${(subject.tutor as { tutorFirstName: string; tutorLastName: string }).tutorFirstName} ${(subject.tutor as { tutorFirstName: string; tutorLastName: string }).tutorLastName}`
+													: 'No tutor assigned'}
+											</p>
 										</div>
 									</label>
 								);

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from './Modal';
@@ -40,6 +40,7 @@ const roleColors: Record<string, string> = {
 export default function Layout() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -58,6 +59,7 @@ export default function Layout() {
 
   const handleLogout = () => {
     logout();
+    queryClient.clear();
     toast.success('Signed out successfully');
     navigate('/login');
   };
@@ -280,7 +282,7 @@ function StudentParentIndicator({ userProfileId }: { userProfileId: number }) {
   const name = `${data.parentFirstName || ''} ${data.parentLastName || ''}`.trim();
   return (
     <div className="px-3 py-2 text-sm text-surface-700">
-      Student is linked to <span className="font-medium">{name || 'guardian'}</span>
+      Parent/Guardian: <span className="font-medium">{name || '—'}</span>
     </div>
   );
 }
