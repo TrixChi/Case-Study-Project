@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, Search, FileText } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { Attendance, Student, Subject } from '../types';
+import { Attendance, Student, Subject, Enrollment } from '../types';
 import Modal from '../components/Modal';
 import ConfirmModal from '../components/ConfirmModal';
 import { ATTENDANCE_STATUS_BADGES } from '../styles/design';
@@ -17,6 +17,7 @@ export default function AttendancePage() {
 	const qc = useQueryClient();
 	const canEdit = user?.role === 'admin' || user?.role === 'tutor';
 	const isAdmin = user?.role === 'admin';
+	const isTutor = user?.role === 'tutor';
 
 	const [search, setSearch] = useState('');
 	const [filterStatus, setFilterStatus] = useState('all');
@@ -40,6 +41,12 @@ export default function AttendancePage() {
 		queryKey: ['subjects'],
 		queryFn: async () => { const res = await api.get('/records/subjects'); return res.data.data as Subject[]; },
 		enabled: canEdit,
+	});
+
+	const { data: enrollments = [] } = useQuery({
+		queryKey: ['enrollment'],
+		queryFn: async () => { const res = await api.get('/enrollment'); return res.data.data as Enrollment[]; },
+		enabled: isTutor,
 	});
 
 	const openCreate = () => { setEditing(null); setForm(emptyForm); setShowModal(true); };
@@ -174,23 +181,43 @@ export default function AttendancePage() {
 			</div>
 
 			<Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Attendance' : 'Mark Attendance'}>
+				{(() => {
+					const modalSubjects = isTutor ? subjects.filter(s => s.tutorID === user?.profileId) : subjects;
+					const enrolledStudentIDs = isTutor && form.subjectID
+						? new Set(enrollments.filter(e => e.status === 'approved' && String(e.subjectID) === form.subjectID).map(e => e.studentID))
+						: null;
+					const modalStudents = isTutor
+						? (form.subjectID ? students.filter(s => enrolledStudentIDs!.has(s.studentID)) : [])
+						: students;
+					return (
 				<div className="space-y-4">
 					{!editing && (
 						<>
+							{isTutor && (
+								<div>
+									<label className="label">Subject *</label>
+									<select className="input" value={form.subjectID} onChange={e => setForm(f => ({ ...f, subjectID: e.target.value, studentID: '' }))}>
+										<option value="">Select subject…</option>
+										{modalSubjects.map(s => <option key={s.subjectID} value={s.subjectID}>{s.subjectName}</option>)}
+									</select>
+								</div>
+							)}
 							<div>
 								<label className="label">Student *</label>
-								<select className="input" value={form.studentID} onChange={e => setForm(f => ({ ...f, studentID: e.target.value }))}>
-									<option value="">Select student…</option>
-									{students.map(s => <option key={s.studentID} value={s.studentID}>{s.stuFirstName} {s.stuLastName}</option>)}
+								<select className="input" value={form.studentID} onChange={e => setForm(f => ({ ...f, studentID: e.target.value }))} disabled={isTutor && !form.subjectID}>
+									<option value="">{isTutor && !form.subjectID ? 'Select a subject first' : 'Select student…'}</option>
+									{modalStudents.map(s => <option key={s.studentID} value={s.studentID}>{s.stuFirstName} {s.stuLastName}</option>)}
 								</select>
 							</div>
-							<div>
-								<label className="label">Subject</label>
-								<select className="input" value={form.subjectID} onChange={e => setForm(f => ({ ...f, subjectID: e.target.value }))}>
-									<option value="">Select subject…</option>
-									{subjects.map(s => <option key={s.subjectID} value={s.subjectID}>{s.subjectName}</option>)}
-								</select>
-							</div>
+							{!isTutor && (
+								<div>
+									<label className="label">Subject</label>
+									<select className="input" value={form.subjectID} onChange={e => setForm(f => ({ ...f, subjectID: e.target.value }))}>
+										<option value="">Select subject…</option>
+										{modalSubjects.map(s => <option key={s.subjectID} value={s.subjectID}>{s.subjectName}</option>)}
+									</select>
+								</div>
+							)}
 						</>
 					)}
 					<div>
@@ -216,6 +243,8 @@ export default function AttendancePage() {
 						</button>
 					</div>
 				</div>
+					);
+				})()}
 			</Modal>
 
 			<ConfirmModal

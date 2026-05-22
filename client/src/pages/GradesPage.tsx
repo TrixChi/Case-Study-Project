@@ -119,7 +119,10 @@ export default function GradesPage() {
 
   // Tutor view: subject-based grade input
   if (isTutor) {
+    const tutorSubjects = subjects.filter(s => s.tutorID === user?.profileId);
     const approvedEnrollments = enrollments.filter(e => e.status === 'approved' && (!selectedSubjectId || e.subjectID === Number(selectedSubjectId)));
+    const enrolledStudentIDs = new Set(enrollments.filter(e => e.status === 'approved' && String(e.subjectID) === form.subjectID).map(e => e.studentID));
+    const modalStudents = form.subjectID ? students.filter(s => enrolledStudentIDs.has(s.studentID)) : [];
 
     return (
       <div className="space-y-6 animate-fade-in">
@@ -128,6 +131,9 @@ export default function GradesPage() {
             <h1 className="page-title">Grades</h1>
             <p className="text-sm text-surface-500 mt-1">{grades.length} grade records</p>
           </div>
+          <button onClick={openCreate} className="btn-primary">
+            <Plus className="w-4 h-4" /> Add Grade
+          </button>
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -137,7 +143,7 @@ export default function GradesPage() {
             className="input w-auto"
           >
             <option value="">All Subjects</option>
-            {subjects.map(s => <option key={s.subjectID} value={s.subjectID}>{s.subjectName}</option>)}
+            {tutorSubjects.map(s => <option key={s.subjectID} value={s.subjectID}>{s.subjectName}</option>)}
           </select>
         </div>
 
@@ -271,8 +277,26 @@ export default function GradesPage() {
           </div>
         )}
 
-        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Edit Grade">
+        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Grade' : 'Add Grade'}>
           <div className="space-y-4">
+            {!editing && (
+              <>
+                <div>
+                  <label className="label">Subject *</label>
+                  <select className="input" value={form.subjectID} onChange={e => setForm(f => ({ ...f, subjectID: e.target.value, studentID: '' }))}>
+                    <option value="">Select subject…</option>
+                    {tutorSubjects.map(s => <option key={s.subjectID} value={s.subjectID}>{s.subjectName}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Student *</label>
+                  <select className="input" value={form.studentID} onChange={e => setForm(f => ({ ...f, studentID: e.target.value }))} disabled={!form.subjectID}>
+                    <option value="">{form.subjectID ? 'Select student…' : 'Select a subject first'}</option>
+                    {modalStudents.map(s => <option key={s.studentID} value={s.studentID}>{s.stuFirstName} {s.stuLastName}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
             <div>
               <label className="label">Grade (0–100) *</label>
               <input type="number" min="0" max="100" className="input" value={form.gradeValue} onChange={e => setForm(f => ({ ...f, gradeValue: e.target.value }))} placeholder="e.g. 85" />
@@ -284,7 +308,13 @@ export default function GradesPage() {
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
-              <button onClick={() => updateMutation.mutate(form)} disabled={!form.gradeValue} className="btn-primary">Update Grade</button>
+              <button
+                onClick={() => editing ? updateMutation.mutate(form) : createMutation.mutate(form)}
+                disabled={!form.gradeValue || (!editing && (!form.studentID || !form.subjectID))}
+                className="btn-primary"
+              >
+                {editing ? 'Update Grade' : 'Add Grade'}
+              </button>
             </div>
           </div>
         </Modal>

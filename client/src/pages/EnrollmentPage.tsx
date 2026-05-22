@@ -154,7 +154,7 @@ export default function EnrollmentPage() {
 		const rejected = enrollments.filter(e => e.status === 'rejected');
 		const totalUnits = approved.reduce((sum, e) => sum + Number(e.subject?.units || 0), 0);
 		const totalFee = approved.reduce((sum, e) => sum + Number(e.subject?.fee || 0), 0);
-		const missingFees = paymentSummary?.missingFees ?? 0;
+		const missingFees = paymentSummary?.totals?.missingFees ?? paymentSummary?.missingFees ?? 0;
 
 		return (
 			<div className="space-y-6 animate-fade-in">

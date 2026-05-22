@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Plus, UserPlus, Pencil, Search } from 'lucide-react';
+import { CheckCircle2, Plus, UserPlus, Pencil, Search, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Parent, Student } from '../types';
@@ -41,6 +41,7 @@ export default function ParentModulePage() {
   const [adminForm, setAdminForm] = useState({ ...emptyForm, studentID: '' });
   const resetAdminForm = () => setAdminForm({ ...emptyForm, studentID: '' });
 
+  const [deletingParent, setDeletingParent] = useState<Parent | null>(null);
   const [editingParent, setEditingParent] = useState<Parent | null>(null);
   const [editForm, setEditForm] = useState({
     parentFirstName: '', parentMiddleName: '', parentLastName: '',
@@ -63,6 +64,21 @@ export default function ParentModulePage() {
     ));
     setEditStudentSearch('');
   };
+
+  const deleteMutation = useMutation({
+    mutationFn: async (parentID: number) => {
+      await api.delete(`/records/parents/${parentID}`);
+    },
+    onSuccess: () => {
+      toast.success('Parent deleted');
+      qc.invalidateQueries({ queryKey: ['parents'] });
+      qc.invalidateQueries({ queryKey: ['students'] });
+      setDeletingParent(null);
+    },
+    onError: (error: { response?: { data?: { error?: string } } }) => {
+      toast.error(error.response?.data?.error || 'Failed to delete parent');
+    },
+  });
 
   const updateMutation = useMutation({
     mutationFn: async (payload: typeof editForm) => {
@@ -236,9 +252,14 @@ export default function ParentModulePage() {
                             <p className="text-xs text-surface-400 mt-2 italic">No students linked</p>
                           )}
                         </div>
-                        <button className="icon-btn flex-shrink-0" onClick={() => openEdit(parent)} title="Edit parent">
-                          <Pencil className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button className="icon-btn" onClick={() => openEdit(parent)} title="Edit parent">
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button className="icon-btn text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setDeletingParent(parent)} title="Delete parent">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -379,6 +400,31 @@ export default function ParentModulePage() {
                 >
                   <UserPlus className="w-4 h-4" />
                   {adminCreateMutation.isPending ? 'Creating…' : 'Create Parent'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingParent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-surface-900/50 backdrop-blur-sm" onClick={() => setDeletingParent(null)} />
+          <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-sm animate-slide-in">
+            <div className="px-6 py-5">
+              <h2 className="section-title text-red-600">Delete Parent</h2>
+              <p className="text-sm text-surface-600 mt-2">
+                Are you sure you want to delete <span className="font-semibold text-surface-900">{deletingParent.parentFirstName} {deletingParent.parentLastName}</span>? This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3 mt-5">
+                <button onClick={() => setDeletingParent(null)} className="btn-secondary">Cancel</button>
+                <button
+                  onClick={() => deleteMutation.mutate(deletingParent.parentID)}
+                  disabled={deleteMutation.isPending}
+                  className="btn-primary bg-red-600 hover:bg-red-700 border-red-600"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
             </div>
