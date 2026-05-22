@@ -265,7 +265,6 @@ export default function StudentsPage() {
                   <th className="table-cell text-left">Contact</th>
                   <th className="table-cell text-left">Address</th>
                   <th className="table-cell text-left">Status</th>
-                  <th className="table-cell text-left">Parent/Guardian</th>
                   {isAdmin && <th className="table-cell text-left">Overdue Fees</th>}
                   {isAdmin && <th className="table-cell text-right">Actions</th>}
                 </tr>
@@ -294,11 +293,6 @@ export default function StudentsPage() {
                       <span className={`badge ${STUDENT_STATUS_BADGES[s.status] || 'badge-gray'}`}>
                         {s.status}
                       </span>
-                    </td>
-                    <td className="table-cell text-surface-500">
-                      {s.parent
-                        ? `${s.parent.parentFirstName} ${s.parent.parentLastName}`.trim()
-                        : s.parentID ? parentNameById[s.parentID] || `Parent #${s.parentID}` : '—'}
                     </td>
                     {isAdmin && (
                       <td className="table-cell text-surface-500">

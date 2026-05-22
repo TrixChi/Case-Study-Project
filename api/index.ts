@@ -165,7 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (!sub && req.method === 'GET') {
         let query = supabase.from('enrollment')
-          .select('*, student(studentID,stuFirstName,stuLastName), subject(subjectID,subjectName,units,tutorID, tutor(tutorFirstName,tutorLastName))')
+          .select('*, student(studentID,stuFirstName,stuLastName), subject(subjectID,subjectName,units,fee,tutorID, tutor(tutorFirstName,tutorLastName))')
           .order('enrollmentDate', { ascending: false });
         if (user.role === 'student') query = query.eq('studentID', user.profileId);
         if (user.role === 'parent') {
@@ -191,11 +191,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (sub && id === 'status' && req.method === 'PATCH') {
         if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
         const { status } = req.body;
+        if (!['approved', 'rejected', 'pending'].includes(status))
+          return res.status(400).json({ success: false, error: 'Invalid status' });
+
+        // Fetch current state before updating so we know prev status and fee
+        const { data: current, error: fetchErr } = await supabase.from('enrollment')
+          .select('status, studentID, subject(fee)')
+          .eq('enrollmentID', sub).single();
+        if (fetchErr) throw fetchErr;
+
         const { data, error } = await supabase.from('enrollment')
           .update({ status, validatedBy: user.profileId })
-          .eq('enrollmentID', sub).select('*, student(*), subject(*)').single();
+          .eq('enrollmentID', sub)
+          .select('*, student(studentID,stuFirstName,stuLastName), subject(subjectID,subjectName,units,fee,tutor(tutorFirstName,tutorLastName))').single();
         if (error) throw error;
-        return res.json({ success: true, data });
+
+        // Sync overdueFees on the student
+        const subjectFee = Number((current as any)?.subject?.fee || 0);
+        const prevStatus = (current as any)?.status;
+        const studentID = (current as any)?.studentID;
+        if (subjectFee > 0 && studentID) {
+          const { data: stu } = await supabase.from('student').select('overdueFees').eq('studentID', studentID).single();
+          const cur = Number((stu as any)?.overdueFees || 0);
+          if (status === 'approved' && prevStatus !== 'approved') {
+            await supabase.from('student').update({ overdueFees: cur + subjectFee, status: 'missing fees' }).eq('studentID', studentID);
+          } else if (prevStatus === 'approved' && status !== 'approved') {
+            const next = Math.max(0, cur - subjectFee);
+            await supabase.from('student').update({ overdueFees: next }).eq('studentID', studentID);
+          }
+        }
+
+        return res.json({ success: true, data, message: `Enrollment ${status}` });
       }
 
       if (sub && req.method === 'DELETE') {
@@ -389,14 +415,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (sub === 'students' && req.method === 'POST') {
         if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
-        const { data, error } = await supabase.from('student').insert(req.body).select().single();
+        const { email, password, stuFirstName, stuMiddleName, stuLastName, stuContactInfo, address, status, parentID, overdueFees } = req.body;
+        if (!stuFirstName || !stuLastName)
+          return res.status(400).json({ success: false, error: 'stuFirstName and stuLastName are required' });
+        const normalizedEmail = String(email || '').toLowerCase().trim() ||
+          `${String(stuLastName).toLowerCase().replace(/\s+/g, '')}.${String(stuFirstName).toLowerCase().replace(/\s+/g, '')}@student.abclearning.com`;
+        const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
+        const insertPayload: Record<string, unknown> = {
+          email: normalizedEmail,
+          password_hash: passwordHash,
+          stuFirstName,
+          stuMiddleName: stuMiddleName || '',
+          stuLastName,
+          stuContactInfo: stuContactInfo || '',
+          address: address || '',
+          status: status || 'enrolled',
+        };
+        if (parentID) insertPayload.parentID = Number(parentID);
+        if (overdueFees !== '' && overdueFees != null) insertPayload.overdueFees = Number(overdueFees);
+        const { data, error } = await supabase.from('student').insert(insertPayload).select().single();
         if (error) throw error;
         return res.status(201).json({ success: true, data });
       }
 
       if (sub === 'students' && id && req.method === 'PATCH') {
         if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
-        const { data, error } = await supabase.from('student').update(req.body).eq('studentID', id).select().single();
+        const { password, email, stuFirstName, stuMiddleName, stuLastName, stuContactInfo, address, status, parentID, overdueFees } = req.body;
+        const updates: Record<string, unknown> = {};
+        if (email) updates.email = String(email).toLowerCase();
+        if (stuFirstName !== undefined) updates.stuFirstName = stuFirstName;
+        if (stuMiddleName !== undefined) updates.stuMiddleName = stuMiddleName || '';
+        if (stuLastName !== undefined) updates.stuLastName = stuLastName;
+        if (stuContactInfo !== undefined) updates.stuContactInfo = stuContactInfo;
+        if (address !== undefined) updates.address = address;
+        if (status !== undefined) updates.status = status;
+        if ('parentID' in req.body) updates.parentID = parentID ? Number(parentID) : null;
+        if (overdueFees !== '' && overdueFees != null) updates.overdueFees = Number(overdueFees);
+        if (password) updates.password_hash = await bcrypt.hash(String(password), 12);
+        const { data, error } = await supabase.from('student').update(updates).eq('studentID', id).select().single();
         if (error) throw error;
         return res.json({ success: true, data });
       }
