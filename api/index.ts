@@ -330,12 +330,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const { status } = req.body;
         if (!['approved', 'rejected', 'pending'].includes(status))
           return res.status(400).json({ success: false, error: 'Invalid status' });
+
+        // Fetch current state so we know previous status and subject fee
+        const { data: current } = await supabase.from('enlistment')
+          .select('status, studentID, subject(fee)')
+          .eq('enlistmentID', sub).single();
+
         const { data, error } = await supabase.from('enlistment')
           .update({ status, validatedBy: user.profileId, validatedAt: new Date().toISOString() })
           .eq('enlistmentID', sub)
-          .select('*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName)').single();
+          .select('*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName, fee)').single();
         if (error) throw error;
+
+        const subjectFee = Number((current as any)?.subject?.fee || 0);
+        const prevStatus = (current as any)?.status;
+        const studentID = (current as any)?.studentID;
+
         if (status === 'approved' && data) {
+          // Create enrollment if not already existing
           const { data: existing } = await supabase.from('enrollment').select('enrollmentID')
             .eq('studentID', (data as any).studentID).eq('subjectID', (data as any).subjectID).maybeSingle();
           if (!existing) {
@@ -344,7 +356,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               enrollmentDate: new Date().toISOString(), status: 'approved',
             });
           }
+
+          // Add subject fee to student overdueFees on first approval
+          if (subjectFee > 0 && studentID && prevStatus !== 'approved') {
+            const { data: stu } = await supabase.from('student').select('overdueFees').eq('studentID', studentID).single();
+            const cur = Number((stu as any)?.overdueFees || 0);
+            await supabase.from('student').update({ overdueFees: cur + subjectFee, status: 'missing fees' }).eq('studentID', studentID);
+          }
+        } else if (prevStatus === 'approved' && status !== 'approved' && subjectFee > 0 && studentID) {
+          // Subtract fee when un-approving
+          const { data: stu } = await supabase.from('student').select('overdueFees').eq('studentID', studentID).single();
+          const cur = Number((stu as any)?.overdueFees || 0);
+          await supabase.from('student').update({ overdueFees: Math.max(0, cur - subjectFee) }).eq('studentID', studentID);
         }
+
         return res.json({ success: true, data, message: `Enlistment ${status}` });
       }
 
