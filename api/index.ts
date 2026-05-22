@@ -154,6 +154,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.json({ success: true, message: 'Password updated' });
   }
+
+  if (sub === 'forgot-password' && req.method === 'POST') {
+    const { email } = req.body;
+    if (!email)
+      return res.status(400).json({ success: false, error: 'Email is required' });
+
+    const normalized = email.toLowerCase().trim();
+
+    const tables = [
+      { table: 'admin_staff', idCol: 'staffID' },
+      { table: 'tutor',       idCol: 'tutorID' },
+      { table: 'student',     idCol: 'studentID' },
+      { table: 'parent',      idCol: 'parentID' },
+    ];
+
+    let found: any = null;
+    let foundConfig: typeof tables[0] | null = null;
+
+    for (const cfg of tables) {
+      const { data } = await supabase
+        .from(cfg.table)
+        .select('*')
+        .ilike('email', normalized)
+        .maybeSingle();
+      if (data) { found = data; foundConfig = cfg; break; }
+    }
+
+    if (!found || !foundConfig)
+      return res.status(404).json({ success: false, error: 'No account found with that email address' });
+
+    const temporaryPassword = 'ABClearning2026';
+    const newHash = await bcrypt.hash(temporaryPassword, 12);
+
+    const { error: updateError } = await supabase
+      .from(foundConfig.table)
+      .update({ encrypted_password: newHash })
+      .eq(foundConfig.idCol, found[foundConfig.idCol]);
+    if (updateError) throw updateError;
+
+    return res.json({
+      success: true,
+      data: { temporaryPassword },
+      message: 'Password has been reset to the default password',
+    });
+  }
 }
 
     // ── Require auth for everything below ─────────────────
