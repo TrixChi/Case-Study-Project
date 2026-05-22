@@ -31,9 +31,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const path = (req.query.path as string) || '';
   const segments = path.split('/').filter(Boolean);
-  const module = segments[0]; // auth, enrollment, payment, records
+  const module = segments[0]; // auth, enrollment, enlistment, payment, records
   const sub = segments[1];    // login, register, students, grades, etc.
   const id = segments[2];     // optional :id
+  const extra = segments[3];  // optional sub-action (validate, status, release, etc.)
 
   try {
     // ── AUTH ──────────────────────────────────────────────
@@ -205,8 +206,113 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    // ── ENLISTMENT ────────────────────────────────────────
+    if (module === 'enlistment') {
+
+      if (!sub && req.method === 'GET') {
+        let query = supabase.from('enlistment')
+          .select('*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName, units, fee, tutor(tutorFirstName, tutorLastName))')
+          .order('enlistmentDate', { ascending: false });
+        if (user.role === 'student') query = query.eq('studentID', user.profileId);
+        const { data, error } = await query;
+        if (error) throw error;
+        return res.json({ success: true, data });
+      }
+
+      // POST — student submits one or more subjects; inserts 1 row per subject
+      if (!sub && req.method === 'POST') {
+        if (user.role !== 'student') return res.status(403).json({ success: false, error: 'Forbidden' });
+        const { subjectIDs } = req.body;
+        if (!Array.isArray(subjectIDs) || subjectIDs.length === 0)
+          return res.status(400).json({ success: false, error: 'At least one subjectID is required' });
+
+        const enlistmentDate = new Date().toISOString();
+        const created: any[] = [];
+        const skipped: number[] = [];
+
+        for (const raw of subjectIDs) {
+          const sid = Number(raw);
+          const { data: existing } = await supabase.from('enlistment').select('enlistmentID')
+            .eq('studentID', user.profileId).eq('subjectID', sid).in('status', ['pending', 'approved']).maybeSingle();
+          if (existing) { skipped.push(sid); continue; }
+          const { data: passed } = await supabase.from('grade').select('gradeID')
+            .eq('studentID', user.profileId).eq('subjectID', sid).eq('academicStanding', 'Passed').maybeSingle();
+          if (passed) { skipped.push(sid); continue; }
+          const { data, error } = await supabase.from('enlistment')
+            .insert({ studentID: user.profileId, subjectID: sid, enlistmentDate, status: 'pending' })
+            .select('*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName)').single();
+          if (error) throw error;
+          created.push(data);
+        }
+
+        if (created.length === 0)
+          return res.status(409).json({ success: false, error: 'Already enlisted in all selected subjects' });
+        return res.status(201).json({
+          success: true, data: created,
+          message: `${created.length} enlistment(s) submitted${skipped.length > 0 ? `, ${skipped.length} already enlisted` : ''}`,
+        });
+      }
+
+      // PATCH /:id/status — admin approves or rejects
+      if (sub && id === 'status' && req.method === 'PATCH') {
+        if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+        const { status } = req.body;
+        if (!['approved', 'rejected', 'pending'].includes(status))
+          return res.status(400).json({ success: false, error: 'Invalid status' });
+        const { data, error } = await supabase.from('enlistment')
+          .update({ status, validatedBy: user.profileId, validatedAt: new Date().toISOString() })
+          .eq('enlistmentID', sub)
+          .select('*, student(studentID, stuFirstName, stuLastName), subject(subjectID, subjectName)').single();
+        if (error) throw error;
+        if (status === 'approved' && data) {
+          const { data: existing } = await supabase.from('enrollment').select('enrollmentID')
+            .eq('studentID', (data as any).studentID).eq('subjectID', (data as any).subjectID).maybeSingle();
+          if (!existing) {
+            await supabase.from('enrollment').insert({
+              studentID: (data as any).studentID, subjectID: (data as any).subjectID,
+              enrollmentDate: new Date().toISOString(), status: 'approved',
+            });
+          }
+        }
+        return res.json({ success: true, data, message: `Enlistment ${status}` });
+      }
+
+      // DELETE /:id
+      if (sub && !id && req.method === 'DELETE') {
+        if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+        const { error } = await supabase.from('enlistment').delete().eq('enlistmentID', sub);
+        if (error) throw error;
+        return res.json({ success: true, message: 'Enlistment deleted' });
+      }
+    }
+
     // ── PAYMENT ───────────────────────────────────────────
     if (module === 'payment') {
+
+      // GET /payment/summary — missing fees stat for dashboard
+      if (sub === 'summary' && req.method === 'GET') {
+        if (user.role === 'tutor') return res.json({ success: true, data: { totals: { missingFees: 0 }, students: [] } });
+        let query = supabase.from('student').select('studentID, stuFirstName, stuLastName, status, overdueFees');
+        if (user.role === 'student') query = query.eq('studentID', user.profileId);
+        else if (user.role === 'parent') query = query.eq('parentID', user.profileId);
+        const { data: allStudents, error: sErr } = await query;
+        if (sErr) throw sErr;
+        const withFees = (allStudents || []).filter((s: any) => s.status === 'missing fees' || Number(s.overdueFees) > 0);
+        const totalMissingFees = withFees.reduce((sum: number, s: any) => sum + Number(s.overdueFees || 0), 0);
+        return res.json({
+          success: true,
+          data: {
+            totals: { missingFees: totalMissingFees },
+            students: withFees.map((s: any) => ({
+              studentID: s.studentID,
+              stuFirstName: s.stuFirstName,
+              stuLastName: s.stuLastName,
+              missingFees: Number(s.overdueFees || 0),
+              subjects: [],
+            })),
+          },
+        });
+      }
 
       if (!sub && req.method === 'GET') {
         if (user.role === 'tutor') return res.status(403).json({ success: false, error: 'Forbidden' });
@@ -443,11 +549,14 @@ if (sub === 'tutors' && req.method === 'POST') {
 
 if (sub === 'tutors' && id && req.method === 'PATCH') {
   if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
-  const updates: any = { ...req.body };
-  if (updates.password) {
-    updates.password_hash = await bcrypt.hash(updates.password, 12);
-    delete updates.password;
-  }
+  const { password, email, tutorFirstName, tutorLastName, specialization, status } = req.body;
+  const updates: any = {};
+  if (tutorFirstName !== undefined) updates.tutorFirstName = tutorFirstName;
+  if (tutorLastName !== undefined) updates.tutorLastName = tutorLastName;
+  if (specialization !== undefined) updates.specialization = specialization;
+  if (status !== undefined) updates.status = status;
+  if (email) updates.email = String(email).toLowerCase();
+  if (password) updates.password_hash = await bcrypt.hash(password, 12);
   const { data, error } = await supabase.from('tutor').update(updates).eq('tutorID', id).select().single();
   if (error) throw error;
   return res.json({ success: true, data });
@@ -460,12 +569,72 @@ if (sub === 'tutors' && id && req.method === 'DELETE') {
   return res.json({ success: true, message: 'Deleted' });
 }
 
-      // Parents
-      if (sub === 'parents' && req.method === 'GET') {
+      // Parents — GET list
+      if (sub === 'parents' && !id && req.method === 'GET') {
         if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
         const { data, error } = await supabase.from('parent').select('*').order('parentLastName');
         if (error) throw error;
         return res.json({ success: true, data });
+      }
+
+      // Parents — POST (admin creates)
+      if (sub === 'parents' && !id && req.method === 'POST') {
+        if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+        const { email, password, parentFirstName, parentMiddleName, parentLastName, contactInfo, relationship, studentID } = req.body;
+        if (!email || !parentFirstName || !parentLastName || !contactInfo || !relationship)
+          return res.status(400).json({ success: false, error: 'email, parentFirstName, parentLastName, contactInfo, and relationship are required' });
+        const normalizedEmail = String(email).toLowerCase().trim();
+        const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
+        const { data, error } = await supabase.from('parent')
+          .insert({
+            email: normalizedEmail,
+            password_hash: passwordHash,
+            parentFirstName, parentMiddleName: parentMiddleName || '',
+            parentLastName, contactInfo,
+            relationshipStatus: relationship,
+            studentID: studentID ? Number(studentID) : null,
+            approved: 'approved',
+          })
+          .select('*').single();
+        if (error) throw error;
+        if (data && studentID) {
+          await supabase.from('student').update({ parentID: Number((data as any).parentID) }).eq('studentID', Number(studentID));
+        }
+        return res.status(201).json({ success: true, data, message: 'Parent created' });
+      }
+
+      // Parents — PATCH /:id
+      if (sub === 'parents' && id && !extra && req.method === 'PATCH') {
+        if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+        const { parentFirstName, parentMiddleName, parentLastName, contactInfo, relationship, studentIDs } = req.body;
+        const updates: any = {};
+        if (parentFirstName !== undefined) updates.parentFirstName = parentFirstName;
+        if (parentMiddleName !== undefined) updates.parentMiddleName = parentMiddleName || '';
+        if (parentLastName !== undefined) updates.parentLastName = parentLastName;
+        if (contactInfo !== undefined) updates.contactInfo = contactInfo;
+        if (relationship !== undefined) updates.relationshipStatus = relationship;
+        const { data, error } = await supabase.from('parent').update(updates).eq('parentID', id).select('*').single();
+        if (error) throw error;
+        if (Array.isArray(studentIDs)) {
+          try {
+            const parentId = Number(id);
+            const newIDs = studentIDs.map(Number).filter(Boolean);
+            const { data: cur } = await supabase.from('student').select('studentID').eq('parentID', parentId);
+            const curIDs = (cur || []).map((s: any) => s.studentID);
+            const toUnlink = curIDs.filter((sid: number) => !newIDs.includes(sid));
+            if (toUnlink.length > 0) await supabase.from('student').update({ parentID: null }).in('studentID', toUnlink);
+            if (newIDs.length > 0) await supabase.from('student').update({ parentID: parentId }).in('studentID', newIDs);
+          } catch (linkErr) { console.error('Parent student linking failed:', linkErr); }
+        }
+        return res.json({ success: true, data });
+      }
+
+      // Parents — DELETE /:id
+      if (sub === 'parents' && id && req.method === 'DELETE') {
+        if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Forbidden' });
+        const { error } = await supabase.from('parent').delete().eq('parentID', id);
+        if (error) throw error;
+        return res.json({ success: true, message: 'Parent deleted' });
       }
     }
 
