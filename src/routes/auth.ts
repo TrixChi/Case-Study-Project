@@ -17,9 +17,9 @@ type RoleTableConfig = {
 };
 
 const ROLE_TABLES: RoleTableConfig[] = [
-  { table: 'student', role: 'student', idField: 'studentID', passwordField: 'encrypted_password', firstName: 'stuFirstName', lastName: 'stuLastName' },
-  { table: 'tutor',   role: 'tutor',   idField: 'tutorID',   passwordField: 'encrypted_password', firstName: 'tutorFirstName', lastName: 'tutorLastName' },
-  { table: 'parent',  role: 'parent',  idField: 'parentID',  passwordField: 'encrypted_password', firstName: 'parentFirstName', lastName: 'parentLastName' },
+  { table: 'student', role: 'student', idField: 'studentID', passwordField: 'password_hash', firstName: 'stuFirstName', lastName: 'stuLastName' },
+  { table: 'tutor',   role: 'tutor',   idField: 'tutorID',   passwordField: 'password_hash', firstName: 'tutorFirstName', lastName: 'tutorLastName' },
+  { table: 'parent',  role: 'parent',  idField: 'parentID',  passwordField: 'password_hash', firstName: 'parentFirstName', lastName: 'parentLastName' },
 ];
 
 async function findUserByEmail(email: string): Promise<{

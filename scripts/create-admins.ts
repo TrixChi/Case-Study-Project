@@ -24,7 +24,7 @@ async function run() {
           staffFirstName: admin.staffFirstName ?? email.split('@')[0],
           staffLastName: admin.staffLastName ?? 'Admin',
           role: admin.role ?? 'admin',
-          encrypted_password: passwordHash,
+          password_hash: passwordHash,
         })
         .select('staffID, email')
         .single();

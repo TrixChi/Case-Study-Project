@@ -69,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!found || !foundConfig)
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
 
-    const match = await bcrypt.compare(password, found.encrypted_password || '');
+    const match = await bcrypt.compare(password, found.password_hash || '');
     if (!match)
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
 
@@ -108,7 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hash = await bcrypt.hash(password, 12);
     const { data, error } = await supabase
       .from(cfg.table)
-      .insert({ email: email.toLowerCase(), encrypted_password: hash,
+      .insert({ email: email.toLowerCase(), password_hash: hash,
         [cfg.firstCol]: firstName, [cfg.lastCol]: lastName, ...cfg.extra })
       .select('*').single();
 
@@ -141,15 +141,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!cfg) return res.status(400).json({ success: false, error: 'Invalid role' });
 
     const { data: record } = await supabase
-      .from(cfg.table).select('encrypted_password').eq(cfg.idCol, user.profileId).single();
+      .from(cfg.table).select('password_hash').eq(cfg.idCol, user.profileId).single();
     if (!record) return res.status(404).json({ success: false, error: 'Account not found' });
 
-    const match = await bcrypt.compare(String(currentPassword), record.encrypted_password || '');
+    const match = await bcrypt.compare(String(currentPassword), record.password_hash || '');
     if (!match) return res.status(400).json({ success: false, error: 'Current password incorrect' });
 
     const newHash = await bcrypt.hash(String(newPassword), 12);
     const { error } = await supabase
-      .from(cfg.table).update({ encrypted_password: newHash }).eq(cfg.idCol, user.profileId);
+      .from(cfg.table).update({ password_hash: newHash }).eq(cfg.idCol, user.profileId);
     if (error) throw error;
 
     return res.json({ success: true, message: 'Password updated' });
@@ -189,7 +189,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { error: updateError } = await supabase
       .from(foundConfig.table)
-      .update({ encrypted_password: newHash })
+      .update({ password_hash: newHash })
       .eq(foundConfig.idCol, found[foundConfig.idCol]);
     if (updateError) throw updateError;
 
@@ -468,7 +468,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const passwordHash = await bcrypt.hash(String(password || '').trim() || 'ABClearning2026', 12);
         const insertPayload: Record<string, unknown> = {
           email: normalizedEmail,
-          encrypted_password: passwordHash,
+          password_hash: passwordHash,
           stuFirstName,
           stuMiddleName: stuMiddleName || '',
           stuLastName,
@@ -496,7 +496,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (status !== undefined) updates.status = status;
         if ('parentID' in req.body) updates.parentID = parentID ? Number(parentID) : null;
         if (overdueFees !== '' && overdueFees != null) updates.overdueFees = Number(overdueFees);
-        if (password) updates.encrypted_password = await bcrypt.hash(String(password), 12);
+        if (password) updates.password_hash = await bcrypt.hash(String(password), 12);
         const { data, error } = await supabase.from('student').update(updates).eq('studentID', id).select().single();
         if (error) throw error;
         return res.json({ success: true, data });
@@ -642,7 +642,7 @@ if (sub === 'tutors' && req.method === 'POST') {
   const hash = password ? await bcrypt.hash(password, 12) : null;
   const { data, error } = await supabase.from('tutor')
     .insert({ tutorFirstName, tutorLastName, specialization: specialization || '',
-      email: email?.toLowerCase() || null, encrypted_password: hash, status: 'active' })
+      email: email?.toLowerCase() || null, password_hash: hash, status: 'active' })
     .select('*').single();
   if (error) throw error;
   return res.status(201).json({ success: true, data });
@@ -657,7 +657,7 @@ if (sub === 'tutors' && id && req.method === 'PATCH') {
   if (specialization !== undefined) updates.specialization = specialization;
   if (status !== undefined) updates.status = status;
   if (email) updates.email = String(email).toLowerCase();
-  if (password) updates.encrypted_password = await bcrypt.hash(password, 12);
+  if (password) updates.password_hash = await bcrypt.hash(password, 12);
   const { data, error } = await supabase.from('tutor').update(updates).eq('tutorID', id).select().single();
   if (error) throw error;
   return res.json({ success: true, data });
@@ -689,7 +689,7 @@ if (sub === 'tutors' && id && req.method === 'DELETE') {
         const { data, error } = await supabase.from('parent')
           .insert({
             email: normalizedEmail,
-            encrypted_password: passwordHash,
+            password_hash: passwordHash,
             parentFirstName, parentMiddleName: parentMiddleName || '',
             parentLastName, contactInfo,
             relationshipStatus: relationship,
